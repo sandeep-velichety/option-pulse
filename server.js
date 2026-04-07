@@ -69,12 +69,29 @@ app.post('/api/prices', async (req, res) => {
     const syms = symbols.join(',');
     const d35  = new Date(); d35.setDate(d35.getDate() - 35);
 
-    const [tradeRes, barRes] = await Promise.all([
-      fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${syms}&feed=sip`, { headers: ah }),
-      fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${syms}&timeframe=1Day&start=${d35.toISOString().split('T')[0]}&limit=35&feed=sip`, { headers: ah })
-    ]);
+    // Try sip feed first (live account), fall back to iex
+    let tradeRes, barRes;
+    try {
+      [tradeRes, barRes] = await Promise.all([
+        fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${syms}&feed=sip`, { headers: ah }),
+        fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${syms}&timeframe=1Day&start=${d35.toISOString().split('T')[0]}&limit=35&feed=sip`, { headers: ah })
+      ]);
+      if (!tradeRes.ok && (tradeRes.status === 403 || tradeRes.status === 402)) {
+        throw new Error('sip not available');
+      }
+    } catch(e) {
+      console.log('SIP failed, trying IEX:', e.message);
+      [tradeRes, barRes] = await Promise.all([
+        fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${syms}&feed=iex`, { headers: ah }),
+        fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${syms}&timeframe=1Day&start=${d35.toISOString().split('T')[0]}&limit=35&feed=iex`, { headers: ah })
+      ]);
+    }
 
-    if (!tradeRes.ok) throw new Error(`Trades API: ${tradeRes.status}`);
+    if (!tradeRes.ok) {
+      const errBody = await tradeRes.text();
+      console.error('Trades API error:', tradeRes.status, errBody);
+      throw new Error(`Trades API ${tradeRes.status}: ${errBody}`);
+    }
     const tradeData = await tradeRes.json();
     const barData   = barRes.ok ? await barRes.json() : { bars: {} };
 
