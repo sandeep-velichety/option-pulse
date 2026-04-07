@@ -2129,17 +2129,17 @@ async function fetchTrumpWatch(manual = false) {
     });
     const data = await res.json();
     const raw = data.extractedText || (data.content?.map(b => b.text || '').join('') || '');
-    console.log('Trump raw response:', raw.substring(0, 200));
-    const clean = extractJSON(raw);
-    console.log('Trump clean:', clean.substring(0, 200));
+    
     let trump;
     try {
+      const clean = extractJSON(raw);
       trump = JSON.parse(clean);
+      if (!trump || !trump.overallSentiment) throw new Error('Invalid structure');
     } catch(parseErr) {
-      console.log('Parse error:', parseErr.message);
-      // Show raw text as fallback
-      container.innerHTML = `<div style="font-size:12px;color:var(--subtle);padding:12px;line-height:1.6">${raw.replace(/</g,'&lt;').substring(0,500)}</div>`;
+      // Show raw text if JSON fails
+      container.innerHTML = `<div style="font-size:12px;color:var(--subtle);line-height:1.6;padding:4px">${raw.replace(/</g,'&lt;').replace(/\n/g,'<br>').substring(0,800)}</div>`;
       if (btn) { btn.textContent = '↻ Refresh Now'; btn.disabled = false; }
+      if (manual) startTrumpCountdown();
       return;
     }
     trumpLastFetch = Date.now();
@@ -2233,9 +2233,21 @@ async function analyzeNewsImpact() {
     });
     const data = await res.json();
     const raw  = data.extractedText || data.content?.map(b => b.text || '').join('') || '';
-    const clean = extractJSON(raw);
-    const analysis = JSON.parse(clean);
-    renderNewsImpact(analysis);
+    
+    // Try JSON first, fall back to showing raw text
+    try {
+      const clean = extractJSON(raw);
+      const analysis = JSON.parse(clean);
+      // Validate it has real content
+      if (analysis && (analysis.marketImpact || analysis.summary)) {
+        renderNewsImpact(analysis);
+      } else {
+        throw new Error('Empty analysis');
+      }
+    } catch(parseErr) {
+      // Show raw AI response directly
+      result.innerHTML = `<div class="ai-analysis" style="margin-top:8px"><strong style="color:var(--accent)">Analysis:</strong><br><br>${raw.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>`;
+    }
   } catch(e) {
     result.innerHTML = `<div class="ai-analysis" style="color:var(--put)">Could not analyze. Check connection.</div>`;
   }
@@ -4022,11 +4034,22 @@ async function fetchMarketNews(sym) {
     });
     const data = await res.json();
     const raw  = data.content?.map(b => b.text || '').join('') || '';
-    const clean = extractJSON(raw);
-    const news = JSON.parse(clean);
 
-    newsCache[sym]      = news;
-    newsLastFetch[sym]  = now;
+    let news;
+    try {
+      const clean = extractJSON(raw);
+      news = JSON.parse(clean);
+      if (!news || (!news.mainReason && !news.sentiment)) throw new Error('Invalid');
+    } catch(e) {
+      // Show raw text directly
+      container.innerHTML = `<div class="news-card"><div class="news-move"><span class="news-ticker-label">${sym}</span></div><div class="news-reason" style="white-space:pre-wrap">${raw.replace(/</g,'&lt;').substring(0,400)}</div></div>`;
+      newsLastFetch[sym] = now;
+      if (lastUpdEl) lastUpdEl.textContent = `Updated ${new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})} · refreshes every 30m`;
+      return;
+    }
+
+    newsCache[sym]     = news;
+    newsLastFetch[sym] = now;
     renderNews(news, sym);
 
     if (lastUpdEl) {
