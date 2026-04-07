@@ -1798,35 +1798,15 @@
 
     <!-- Data Source Banner -->
     <div class="paper-banner" id="data-banner">
-      📄 Paper trading · <span id="data-source-label">Prices via Yahoo Finance</span>
+      📄 Paper trading · <span id="data-source-label">Loading prices...</span>
     </div>
 
-    <!-- Alpaca Settings -->
+    <!-- Alpaca Status -->
     <div class="panel-section">
-      <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
-        <span>Alpaca API</span>
-        <button class="add-trade-btn" onclick="toggleAlpacaSettings()" id="alpaca-settings-btn">⚙ Configure</button>
-      </div>
-      <div id="alpaca-settings" style="display:none">
-        <div style="margin-bottom:10px">
-          <div class="field-label">API Key ID</div>
-          <input id="alpaca-key" class="field-input" placeholder="PKXXXXXXXXXXXXXX" type="text" autocomplete="off" autocorrect="off" spellcheck="false">
-        </div>
-        <div style="margin-bottom:12px">
-          <div class="field-label">Secret Key</div>
-          <input id="alpaca-secret" class="field-input" placeholder="Paste your secret key" type="password" autocomplete="off">
-        </div>
-        <button class="generate-btn" onclick="saveAlpacaKeys()" style="margin-top:0;padding:9px">
-          ✓ Connect Alpaca
-        </button>
-        <div style="font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.5">
-          Keys are stored only on your device (localStorage). Never shared anywhere.
-        </div>
-      </div>
+      <div class="panel-title">Market Data</div>
       <div id="alpaca-status-row" style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
-        <span id="alpaca-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block"></span>
-        <span id="alpaca-status-text">Not connected</span>
-        <button id="alpaca-disconnect-btn" onclick="disconnectAlpaca()" style="display:none;margin-left:auto;font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:4px;border:1px solid rgba(255,77,109,0.3);background:none;color:var(--put);cursor:pointer">Disconnect</button>
+        <span id="alpaca-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--call);display:inline-block"></span>
+        <span id="alpaca-status-text">● Live prices via Alpaca</span>
       </div>
     </div>
 
@@ -2718,80 +2698,32 @@ function updatePriceUI(sym, price, prev) {
   }
 }
 
-// ── Alpaca API ──
-let alpacaKey    = '';
-let alpacaSecret = '';
-
+// ── Alpaca API — keys now handled server-side on Railway ──
 function loadAlpacaKeys() {
-  try {
-    alpacaKey    = localStorage.getItem('op_alpaca_key')    || '';
-    alpacaSecret = localStorage.getItem('op_alpaca_secret') || '';
-  } catch(e) {}
-  if (alpacaKey) {
-    document.getElementById('alpaca-key').value    = alpacaKey;
-    document.getElementById('alpaca-secret').value = alpacaSecret;
-    updateAlpacaStatus(true);
-  }
-}
-
-function toggleAlpacaSettings() {
-  const box = document.getElementById('alpaca-settings');
-  const btn = document.getElementById('alpaca-settings-btn');
-  const open = box.style.display === 'none';
-  box.style.display = open ? 'block' : 'none';
-  btn.textContent = open ? '✕ Close' : '⚙ Configure';
-}
-
-function saveAlpacaKeys() {
-  const key    = document.getElementById('alpaca-key').value.trim();
-  const secret = document.getElementById('alpaca-secret').value.trim();
-  if (!key || !secret) { alert('Please enter both Key ID and Secret Key.'); return; }
-  alpacaKey    = key;
-  alpacaSecret = secret;
-  try {
-    localStorage.setItem('op_alpaca_key',    key);
-    localStorage.setItem('op_alpaca_secret', secret);
-  } catch(e) {}
+  // No longer needed — keys are in Railway environment variables
   updateAlpacaStatus(true);
-  toggleAlpacaSettings();
-  // Immediately fetch prices with Alpaca
-  fetchAllPrices();
 }
 
-function disconnectAlpaca() {
-  alpacaKey = ''; alpacaSecret = '';
-  try { localStorage.removeItem('op_alpaca_key'); localStorage.removeItem('op_alpaca_secret'); } catch(e) {}
-  document.getElementById('alpaca-key').value    = '';
-  document.getElementById('alpaca-secret').value = '';
-  updateAlpacaStatus(false);
-  fetchAllPrices(); // fall back to Yahoo
-}
+function toggleAlpacaSettings() {}
+function saveAlpacaKeys() {}
+function disconnectAlpaca() {}
 
 function updateAlpacaStatus(connected) {
-  const dot  = document.getElementById('alpaca-status-dot');
-  const text = document.getElementById('alpaca-status-text');
-  const disc = document.getElementById('alpaca-disconnect-btn');
+  const dot    = document.getElementById('alpaca-status-dot');
+  const text   = document.getElementById('alpaca-status-text');
   const banner = document.getElementById('data-source-label');
   if (connected) {
-    dot.style.background  = 'var(--call)';
-    text.textContent      = 'Connected · Real-time data';
-    disc.style.display    = 'inline-block';
-    if (banner) banner.textContent = 'Live prices via Alpaca ✓';
-  } else {
-    dot.style.background  = 'var(--muted)';
-    text.textContent      = 'Not connected';
-    disc.style.display    = 'none';
-    if (banner) banner.textContent = 'Prices via Yahoo Finance';
+    if (dot)    dot.style.background = 'var(--call)';
+    if (text)   text.textContent     = '● Live prices via Alpaca';
+    if (banner) banner.textContent   = 'Live prices via Alpaca ✓';
   }
 }
-
-async function fetchAlpacaPrice(sym) { /* handled by fetchAllPrices */ }
-
-// Store candle data for AI signal generation
-let candleData = {};
 
 async function fetchAlpacaPrice(sym) { /* handled by fetchAllPrices */ }
 async function fetchAlpacaPrevCloses() { /* handled by fetchAllPrices */ }
+
+// Store candle data for AI signal generation
+let candleData = {};
 
 // Fetch all prices — via Netlify Function (no CORS issues on any device)
 async function fetchAllPrices() {
