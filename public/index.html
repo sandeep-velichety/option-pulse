@@ -2149,44 +2149,49 @@ function renderTrumpWatch(data) {
   const container = document.getElementById('trump-container');
   if (!container || !data) return;
 
-  const alertColor = { HIGH: 'var(--put)', MEDIUM: 'var(--neutral)', LOW: 'var(--call)' }[data.marketAlert] || 'var(--muted)';
-  const sentColor  = { BULLISH: 'var(--call)', BEARISH: 'var(--put)', VOLATILE: 'var(--neutral)', NEUTRAL: 'var(--muted)' }[data.overallSentiment] || 'var(--muted)';
+  // Safe defaults for all fields
+  const sentiment  = data.overallSentiment || 'NEUTRAL';
+  const alert      = data.marketAlert || 'LOW';
+  const bottomLine = data.bottomLine || 'No significant Trump market news at this time.';
+  const strategy   = data.optionsStrategy || 'Monitor market conditions before entering new positions.';
+  const statements = Array.isArray(data.statements) ? data.statements : [];
 
-  const statementsHTML = (data.statements || []).map(s => {
-    const ic = { BULLISH:'var(--call)', BEARISH:'var(--put)', VOLATILE:'var(--neutral)', NEUTRAL:'var(--muted)' }[s.marketImpact] || 'var(--muted)';
-    const affected = (s.affectedStocks || []).map(t => `<span style="font-family:var(--mono);font-size:9px;padding:1px 5px;border-radius:3px;background:var(--surface2);color:var(--subtle)">${t}</span>`).join(' ');
+  const alertColor = { HIGH: 'var(--put)', MEDIUM: 'var(--neutral)', LOW: 'var(--call)' }[alert] || 'var(--muted)';
+  const sentColor  = { BULLISH: 'var(--call)', BEARISH: 'var(--put)', VOLATILE: 'var(--neutral)', NEUTRAL: 'var(--muted)' }[sentiment] || 'var(--muted)';
+
+  const statementsHTML = statements.map(s => {
+    if (!s) return '';
+    const ic       = { BULLISH:'var(--call)', BEARISH:'var(--put)', VOLATILE:'var(--neutral)', NEUTRAL:'var(--muted)' }[s.marketImpact] || 'var(--muted)';
+    const stocks   = Array.isArray(s.affectedStocks) ? s.affectedStocks : [];
+    const affected = stocks.map(t => `<span style="font-family:var(--mono);font-size:9px;padding:1px 5px;border-radius:3px;background:var(--surface2);color:var(--subtle)">${t}</span>`).join(' ');
     return `
       <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px 12px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
-          <span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,77,109,0.1);color:var(--put);border:1px solid rgba(255,77,109,0.2)">${s.source}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:${ic}">${s.marketImpact}</span>
+          <span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,77,109,0.1);color:var(--put);border:1px solid rgba(255,77,109,0.2)">${s.source || 'News'}</span>
+          <span style="font-family:var(--mono);font-size:9px;color:${ic}">${s.marketImpact || 'NEUTRAL'}</span>
           <div style="display:flex;gap:3px">${affected}</div>
         </div>
-        <div style="font-size:12px;color:var(--text);margin-bottom:6px;line-height:1.4">${s.content}</div>
-        <div style="font-size:11px;color:var(--accent);line-height:1.4">💡 ${s.traderAction}</div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:6px;line-height:1.4">${s.content || ''}</div>
+        <div style="font-size:11px;color:var(--accent);line-height:1.4">💡 ${s.traderAction || ''}</div>
       </div>`;
   }).join('');
 
   container.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:${sentColor}">${data.overallSentiment}</span>
-      <span style="font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;background:${alertColor}20;color:${alertColor};border:1px solid ${alertColor}40">${data.marketAlert} ALERT</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:${sentColor}">${sentiment}</span>
+      <span style="font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;background:${alertColor}20;color:${alertColor};border:1px solid ${alertColor}40">${alert} ALERT</span>
     </div>
-
-    ${statementsHTML}
-
+    ${statementsHTML || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No recent statements found.</div>'}
     <div style="background:rgba(61,126,255,0.06);border:1px solid rgba(61,126,255,0.2);border-radius:8px;padding:10px;margin-bottom:8px">
       <div style="font-size:10px;font-weight:600;color:var(--accent);margin-bottom:4px;letter-spacing:0.08em">BOTTOM LINE</div>
-      <div style="font-size:12px;color:var(--subtle);line-height:1.5">${data.bottomLine}</div>
+      <div style="font-size:12px;color:var(--subtle);line-height:1.5">${bottomLine}</div>
     </div>
-
     <div style="background:rgba(0,214,143,0.05);border:1px solid rgba(0,214,143,0.2);border-radius:8px;padding:10px">
       <div style="font-size:10px;font-weight:600;color:var(--call);margin-bottom:4px;letter-spacing:0.08em">OPTIONS STRATEGY THIS WEEK</div>
-      <div style="font-size:12px;color:var(--subtle);line-height:1.5">${data.optionsStrategy}</div>
+      <div style="font-size:12px;color:var(--subtle);line-height:1.5">${strategy}</div>
     </div>
   `;
 }
-
 // Auto-start countdown when intel tab first opened
 document.getElementById('tab-intel')?.addEventListener('click', () => {
   if (trumpLastFetch === 0) fetchTrumpWatch(true);
@@ -2230,42 +2235,44 @@ async function analyzeNewsImpact() {
 
 function renderNewsImpact(a) {
   const result = document.getElementById('news-impact-result');
-  if (!result) return;
+  if (!result || !a) return;
 
-  const impactColor = {
-    BULLISH:  'var(--call)',
-    BEARISH:  'var(--put)',
-    NEUTRAL:  'var(--muted)',
-    VOLATILE: 'var(--neutral)'
-  }[a.marketImpact] || 'var(--muted)';
+  const marketImpact = a.marketImpact || 'NEUTRAL';
+  const impactLevel  = a.impactLevel  || 'LOW';
+  const summary      = a.summary      || 'Analysis complete.';
+  const optionsAdvice= a.optionsAdvice|| 'Monitor market conditions.';
+  const watchFor     = a.watchFor     || 'Watch for market reaction.';
 
-  const levelColor = { HIGH: 'var(--put)', MEDIUM: 'var(--neutral)', LOW: 'var(--call)' }[a.impactLevel] || 'var(--muted)';
+  const impactColor = { BULLISH:'var(--call)', BEARISH:'var(--put)', NEUTRAL:'var(--muted)', VOLATILE:'var(--neutral)' }[marketImpact] || 'var(--muted)';
+  const levelColor  = { HIGH:'var(--put)', MEDIUM:'var(--neutral)', LOW:'var(--call)' }[impactLevel] || 'var(--muted)';
 
   const stockRows = (a.stockImpacts || []).map(s => {
-    const c = s.impact === 'POSITIVE' ? 'var(--call)' : s.impact === 'NEGATIVE' ? 'var(--put)' : 'var(--muted)';
-    const icon = s.impact === 'POSITIVE' ? '▲' : s.impact === 'NEGATIVE' ? '▼' : '—';
+    if (!s) return '';
+    const impact = s.impact || 'NEUTRAL';
+    const c    = impact === 'POSITIVE' ? 'var(--call)' : impact === 'NEGATIVE' ? 'var(--put)' : 'var(--muted)';
+    const icon = impact === 'POSITIVE' ? '▲' : impact === 'NEGATIVE' ? '▼' : '-';
     return `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:11px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-        <span style="font-family:var(--mono);font-weight:600;color:var(--text)">${s.ticker}</span>
-        <span style="color:${c};font-family:var(--mono);font-size:10px">${icon} ${s.impact}</span>
+        <span style="font-family:var(--mono);font-weight:600;color:var(--text)">${s.ticker || ''}</span>
+        <span style="color:${c};font-family:var(--mono);font-size:10px">${icon} ${impact}</span>
       </div>
-      <div style="color:var(--subtle);line-height:1.4">${s.reason}</div>
+      <div style="color:var(--subtle);line-height:1.4">${s.reason || ''}</div>
     </div>`;
   }).join('');
 
   result.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:12px;margin-top:4px">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${impactColor}">${a.marketImpact}</span>
-        <span style="font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:4px;background:${levelColor}20;color:${levelColor};border:1px solid ${levelColor}40">${a.impactLevel} IMPACT</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${impactColor}">${marketImpact}</span>
+        <span style="font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:4px;background:${levelColor}20;color:${levelColor};border:1px solid ${levelColor}40">${impactLevel} IMPACT</span>
       </div>
-      <div style="font-size:12px;color:var(--subtle);line-height:1.5;margin-bottom:10px">${a.summary}</div>
+      <div style="font-size:12px;color:var(--subtle);line-height:1.5;margin-bottom:10px">${summary}</div>
       <div style="margin-bottom:10px">${stockRows}</div>
       <div style="background:rgba(61,126,255,0.06);border:1px solid rgba(61,126,255,0.2);border-radius:7px;padding:9px;font-size:11.5px;color:var(--subtle);margin-bottom:8px;line-height:1.5">
-        <strong style="color:var(--accent)">Options Advice:</strong> ${a.optionsAdvice}
+        <strong style="color:var(--accent)">Options Advice:</strong> ${optionsAdvice}
       </div>
       <div style="background:rgba(240,180,41,0.06);border:1px solid rgba(240,180,41,0.2);border-radius:7px;padding:9px;font-size:11.5px;color:var(--neutral)">
-        👀 <strong>Watch for:</strong> ${a.watchFor}
+        👀 <strong>Watch for:</strong> ${watchFor}
       </div>
     </div>
   `;
