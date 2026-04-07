@@ -2149,7 +2149,7 @@ async function fetchTrumpWatch(manual = false) {
     });
     const data = await res.json();
     const raw = data.extractedText || (data.content?.map(b => b.text || '').join('') || '');
-    const clean = raw.replace(/[\s\S]*?(?=\{)/,'').replace(/\}[^\}]*$/,'}');
+    const clean = extractJSON(raw);
     const trump = JSON.parse(clean);
     trumpLastFetch = Date.now();
     renderTrumpWatch(trump);
@@ -2237,7 +2237,7 @@ async function analyzeNewsImpact() {
     });
     const data = await res.json();
     const raw  = data.extractedText || data.content?.map(b => b.text || '').join('') || '';
-    const clean = raw.replace(/[\s\S]*?(?=\{)/,'').replace(/\}[^\}]*$/,'}');
+    const clean = extractJSON(raw);
     const analysis = JSON.parse(clean);
     renderNewsImpact(analysis);
   } catch(e) {
@@ -3169,7 +3169,7 @@ Keep rationale beginner-friendly. Flag day trades clearly. Max confidence 85.`;
 
     const data = await res.json();
     const raw = data.content.map(b => b.text || '').join('');
-    const clean = raw.replace(/[\s\S]*?(?=\{)/,'').replace(/\}[^\}]*$/,'}');
+    const clean = extractJSON(raw);
     const signals = JSON.parse(clean);
 
     renderSignals(signals);
@@ -3380,6 +3380,38 @@ function updateSentimentBar(signals) {
   badge.style.color = color;
   badge.style.border = `1px solid ${color}30`;
   document.getElementById('sentiment-detail').textContent = detail;
+}
+
+
+// ── Safe JSON extractor ──
+function extractJSON(raw) {
+  if (!raw) return '[]';
+  // Strip markdown code blocks
+  let clean = raw
+    .replace(/^```[\w]*\n?/gm, '')
+    .replace(/\n?```$/gm, '')
+    .trim();
+  // Try to find JSON array first (for signals)
+  const arrStart = clean.indexOf('[');
+  const arrEnd   = clean.lastIndexOf(']');
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try {
+      const candidate = clean.substring(arrStart, arrEnd + 1);
+      JSON.parse(candidate); // validate
+      return candidate;
+    } catch(e) {}
+  }
+  // Try to find JSON object
+  const objStart = clean.indexOf('{');
+  const objEnd   = clean.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) {
+    try {
+      const candidate = clean.substring(objStart, objEnd + 1);
+      JSON.parse(candidate); // validate
+      return candidate;
+    } catch(e) {}
+  }
+  return clean;
 }
 
 // ── Mobile tab switching ──
@@ -4054,7 +4086,7 @@ Respond ONLY with a JSON object like this (no markdown, no extra text):
     });
     const data = await res.json();
     const raw  = data.content?.map(b => b.text || '').join('') || '';
-    const clean = raw.replace(/[\s\S]*?(?=\{)/,'').replace(/\}[^\}]*$/,'}');
+    const clean = extractJSON(raw);
     const news = JSON.parse(clean);
 
     newsCache[sym]      = news;
