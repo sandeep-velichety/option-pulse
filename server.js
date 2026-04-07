@@ -70,8 +70,8 @@ app.post('/api/prices', async (req, res) => {
     const d35  = new Date(); d35.setDate(d35.getDate() - 35);
 
     const [tradeRes, barRes] = await Promise.all([
-      fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${syms}&feed=iex`, { headers: ah }),
-      fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${syms}&timeframe=1Day&start=${d35.toISOString().split('T')[0]}&limit=35&feed=iex`, { headers: ah })
+      fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${syms}&feed=sip`, { headers: ah }),
+      fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${syms}&timeframe=1Day&start=${d35.toISOString().split('T')[0]}&limit=35&feed=sip`, { headers: ah })
     ]);
 
     if (!tradeRes.ok) throw new Error(`Trades API: ${tradeRes.status}`);
