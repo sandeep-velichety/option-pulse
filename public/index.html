@@ -4001,28 +4001,14 @@ async function fetchMarketNews(sym) {
   const cd      = candleData[sym] || {};
   const today   = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
-  const prompt = `You are a financial news analyst. Today is ${today}.
-
-${sym} is currently at ${price} (${chgStr} today from ${prev}).
-${cd.candleBias ? `Candle bias: ${cd.candleBias}` : ''}
-${cd.rsi ? `RSI: ${cd.rsi}` : ''}
-${cd.volume ? `Volume: ${cd.volume}` : ''}
-${cd.patterns && cd.patterns.length > 0 ? `Patterns: ${cd.patterns.map(p=>p.name).join(', ')}` : ''}
-
-Based on your knowledge of recent market events, news, and conditions up to your knowledge cutoff:
-1. What are the most likely reasons ${sym} is ${parseFloat(chgPct||0) >= 0 ? 'rising' : 'falling'} today?
-2. What key news, events, or macro factors are affecting it?
-3. What should a beginner options trader watch for next?
-
-Respond ONLY with a JSON object like this (no markdown, no extra text):
-{
-  "move": "${parseFloat(chgPct||0) >= 0 ? 'UP' : 'DOWN'}",
-  "change": "${chgStr}",
-  "mainReason": "1-2 sentence simple explanation of the main driver",
-  "headlines": ["Key factor 1", "Key factor 2", "Key factor 3"],
-  "watchFor": "One thing to watch next",
-  "sentiment": "BULLISH" or "BEARISH" or "NEUTRAL"
-}`;
+  const direction = parseFloat(chgPct||0) >= 0 ? 'UP' : 'DOWN';
+  const prompt = 'You are a financial news analyst. Today is ' + today + '. ' +
+    sym + ' is at ' + price + ' (' + chgStr + ' today). ' +
+    (cd.candleBias ? 'Candle bias: ' + cd.candleBias + '. ' : '') +
+    (cd.rsi ? 'RSI: ' + cd.rsi + '. ' : '') +
+    '\n\nExplain why ' + sym + ' is moving today and what options traders should watch.\n\n' +
+    'Respond ONLY with this exact JSON (no markdown):\n' +
+    '{"move":"' + direction + '","change":"' + chgStr + '","mainReason":"1-2 sentence explanation","headlines":["factor 1","factor 2","factor 3"],"watchFor":"one thing to watch","sentiment":"BULLISH or BEARISH or NEUTRAL"}';
 
   try {
     const res = await fetch('/api/signals', {
@@ -4057,19 +4043,27 @@ function renderNews(news, sym) {
   const container = document.getElementById('news-container');
   if (!container || !news) return;
 
-  const isUp   = news.move === 'UP';
-  const sentColor = news.sentiment === 'BULLISH' ? 'var(--call)' : news.sentiment === 'BEARISH' ? 'var(--put)' : 'var(--neutral)';
+  // Safe defaults
+  const move       = news.move || (news.change && news.change.startsWith('+') ? 'UP' : 'DOWN');
+  const change     = news.change || '';
+  const mainReason = news.mainReason || news.summary || news.reason || 'Analysis complete.';
+  const headlines  = Array.isArray(news.headlines) ? news.headlines : (news.factors || []);
+  const watchFor   = news.watchFor || news.watch || '';
+  const sentiment  = news.sentiment || 'NEUTRAL';
+
+  const isUp = move === 'UP';
+  const sentColor = sentiment === 'BULLISH' ? 'var(--call)' : sentiment === 'BEARISH' ? 'var(--put)' : 'var(--neutral)';
 
   container.innerHTML = `
     <div class="news-card">
       <div class="news-move">
         <span class="news-ticker-label">${sym}</span>
-        <span class="news-move-badge ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${news.change}</span>
+        <span class="news-move-badge ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${change}</span>
       </div>
-      <div class="news-reason">${news.mainReason}</div>
-      ${(news.headlines || []).map(h => `<div class="news-headline">• ${h}</div>`).join('')}
-      ${news.watchFor ? `<div style="margin-top:8px;padding:7px 9px;background:rgba(240,180,41,0.08);border:1px solid rgba(240,180,41,0.2);border-radius:5px;font-size:11px;color:var(--neutral)">👀 Watch: ${news.watchFor}</div>` : ''}
-      <div class="news-sentiment" style="color:${sentColor};margin-top:6px">Sentiment: ${news.sentiment}</div>
+      <div class="news-reason">${mainReason}</div>
+      ${headlines.map(h => `<div class="news-headline">• ${h}</div>`).join('')}
+      ${watchFor ? `<div style="margin-top:8px;padding:7px 9px;background:rgba(240,180,41,0.08);border:1px solid rgba(240,180,41,0.2);border-radius:5px;font-size:11px;color:var(--neutral)">👀 Watch: ${watchFor}</div>` : ''}
+      <div class="news-sentiment" style="color:${sentColor};margin-top:6px">Sentiment: ${sentiment}</div>
     </div>
   `;
 }
