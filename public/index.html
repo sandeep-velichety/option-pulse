@@ -3973,7 +3973,7 @@ renderJournal();
 let currentNewsTicker = 'SPY';
 let newsCache = {};
 let newsLastFetch = {};
-const NEWS_INTERVAL = 30 * 60 * 1000; // 30 minutes
+const NEWS_INTERVAL = 30 * 60 * 1000;
 
 async function fetchMarketNews(sym) {
   sym = sym || currentNewsTicker;
