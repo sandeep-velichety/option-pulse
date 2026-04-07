@@ -2129,8 +2129,19 @@ async function fetchTrumpWatch(manual = false) {
     });
     const data = await res.json();
     const raw = data.extractedText || (data.content?.map(b => b.text || '').join('') || '');
+    console.log('Trump raw response:', raw.substring(0, 200));
     const clean = extractJSON(raw);
-    const trump = JSON.parse(clean);
+    console.log('Trump clean:', clean.substring(0, 200));
+    let trump;
+    try {
+      trump = JSON.parse(clean);
+    } catch(parseErr) {
+      console.log('Parse error:', parseErr.message);
+      // Show raw text as fallback
+      container.innerHTML = `<div style="font-size:12px;color:var(--subtle);padding:12px;line-height:1.6">${raw.replace(/</g,'&lt;').substring(0,500)}</div>`;
+      if (btn) { btn.textContent = '↻ Refresh Now'; btn.disabled = false; }
+      return;
+    }
     trumpLastFetch = Date.now();
     renderTrumpWatch(trump);
     if (lastEl) {
