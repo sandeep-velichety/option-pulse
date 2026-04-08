@@ -3432,9 +3432,15 @@ Keep rationale beginner-friendly. Flag day trades clearly. Max confidence 85.`;
     });
 
     const data = await res.json();
-    const raw = data.content.map(b => b.text || '').join('');
+    const raw = stripCitations(data.content.map(b => b.text || '').join(''));
     const clean = extractJSON(raw);
-    const signals = JSON.parse(clean);
+    let signals = JSON.parse(clean);
+    // Ensure it's an array — sometimes AI wraps it in an object
+    if (!Array.isArray(signals)) {
+      if (signals.signals && Array.isArray(signals.signals)) signals = signals.signals;
+      else if (signals.data && Array.isArray(signals.data)) signals = signals.data;
+      else signals = Object.values(signals).find(v => Array.isArray(v)) || [];
+    }
 
     renderSignals(signals);
     addToHistory(signals); // save to history
@@ -3659,32 +3665,28 @@ function stripCitations(text) {
 
 function extractJSON(raw) {
   if (!raw) return '[]';
-  // Strip markdown code blocks
   let clean = raw
     .replace(/^```[\w]*\n?/gm, '')
     .replace(/\n?```$/gm, '')
     .trim();
 
-  // Try JSON object first (most AI responses are objects)
+  // Find outermost object
   const objStart = clean.indexOf('{');
+  let objResult = null;
   if (objStart !== -1) {
-    // Find matching closing brace by counting depth
     let depth = 0, objEnd = -1;
     for (let i = objStart; i < clean.length; i++) {
       if (clean[i] === '{') depth++;
       else if (clean[i] === '}') { depth--; if (depth === 0) { objEnd = i; break; } }
     }
     if (objEnd !== -1) {
-      try {
-        const candidate = clean.substring(objStart, objEnd + 1);
-        JSON.parse(candidate);
-        return candidate;
-      } catch(e) {}
+      try { JSON.parse(clean.substring(objStart, objEnd + 1)); objResult = clean.substring(objStart, objEnd + 1); } catch(e) {}
     }
   }
 
-  // Try JSON array (for signals array)
+  // Find outermost array
   const arrStart = clean.indexOf('[');
+  let arrResult = null;
   if (arrStart !== -1) {
     let depth = 0, arrEnd = -1;
     for (let i = arrStart; i < clean.length; i++) {
@@ -3692,15 +3694,16 @@ function extractJSON(raw) {
       else if (clean[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
     }
     if (arrEnd !== -1) {
-      try {
-        const candidate = clean.substring(arrStart, arrEnd + 1);
-        JSON.parse(candidate);
-        return candidate;
-      } catch(e) {}
+      try { JSON.parse(clean.substring(arrStart, arrEnd + 1)); arrResult = clean.substring(arrStart, arrEnd + 1); } catch(e) {}
     }
   }
 
-  return clean;
+  // Prefer array if it comes before object (signals response)
+  // Prefer object if it comes before array (trump/news response)
+  if (arrResult && objResult) {
+    return arrStart < objStart ? arrResult : objResult;
+  }
+  return arrResult || objResult || clean;
 }
 
 // ── Mobile tab switching ──
