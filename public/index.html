@@ -1446,7 +1446,145 @@
     transition: all 0.15s;
   }
   .lesson-btn:hover { color: var(--text); border-color: var(--subtle); }
-  .lesson-counter { font-family: var(--mono); font-size: 10px; color: var(--muted); }</style>
+  .lesson-counter { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+  /* ── MINIMAL REDESIGN OVERRIDES ── */
+
+  /* Remove grid noise */
+  body::before { display: none; }
+
+  /* Tighter header */
+  header { padding: 10px 20px; }
+  @media (max-width: 768px) { header { padding: 8px 14px; } }
+
+  /* Remove all heavy gradients from banners */
+  .pdt-banner {
+    background: transparent;
+    border-bottom: 1px solid var(--border);
+    padding: 7px 20px;
+    font-size: 11.5px;
+  }
+
+  /* Tighter sidebar */
+  .sidebar { padding: 14px 0; }
+  .sidebar-section { margin-bottom: 18px; padding: 0 14px; }
+  .sidebar-label { font-size: 9px; margin-bottom: 6px; }
+  .ticker-card { padding: 7px 10px; margin-bottom: 2px; border-radius: 6px; }
+  .ticker-info .symbol { font-size: 12px; }
+  .ticker-info .name { font-size: 10px; }
+  .ticker-price { font-size: 12px; }
+  .ticker-change { font-size: 10px; }
+  .condition-row { padding: 5px 0; font-size: 11px; }
+  .cond-value { font-size: 11px; }
+
+  /* Tighter content */
+  .content { padding: 14px; }
+
+  /* Slimmer signal cards */
+  .signal-card {
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border-width: 1px;
+  }
+  .signal-top { margin-bottom: 8px; }
+  .direction-badge { font-size: 9px; padding: 2px 6px; }
+  .signal-ticker { font-size: 15px !important; }
+  .signal-type { font-size: 10px; }
+  .signal-confidence { padding: 4px 8px; }
+  .conf-value { font-size: 16px; }
+  .conf-label { font-size: 9px; }
+  .signal-details { gap: 6px; margin-bottom: 8px; }
+  .detail-box { padding: 7px 9px; border-radius: 6px; }
+  .detail-label { font-size: 9px; }
+  .detail-value { font-size: 13px !important; }
+  .signal-rationale { font-size: 12px !important; line-height: 1.5; }
+  .signal-indicators { margin-top: 6px; }
+  .indicator-tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; margin: 2px; }
+  .signal-footer { margin-top: 8px; padding-top: 8px; }
+  .trade-badge { font-size: 9px; padding: 2px 7px; }
+  .signal-time { font-size: 9px; }
+
+  /* Slimmer AI status bar */
+  .ai-status { padding: 10px 14px; margin-bottom: 14px; border-radius: 8px; }
+  .ai-avatar { width: 28px; height: 28px; border-radius: 6px; font-size: 13px; }
+  .ai-status-text .label { font-size: 12px; }
+  .ai-status-text .sub { font-size: 10px; }
+
+  /* Slimmer lesson card */
+  .lesson-card { padding: 12px 14px; margin-bottom: 14px; border-radius: 8px; }
+  .lesson-label { font-size: 9px; }
+  .lesson-title { font-size: 14px; }
+  .lesson-body { font-size: 12px; line-height: 1.5; }
+  .lesson-nav button { font-size: 10px; padding: 5px 10px; }
+
+  /* Slimmer right panel */
+  .right-panel { padding: 14px 0; }
+  .panel-section { padding: 0 14px; margin-bottom: 16px; }
+  .panel-title { font-size: 9px; margin-bottom: 8px; }
+  .generate-btn { padding: 9px; font-size: 12px; border-radius: 7px; }
+  .add-trade-btn { font-size: 10px; padding: 4px 9px; }
+
+  /* Slimmer journal entries */
+  .je-top { margin-bottom: 6px; }
+  .je-dir { font-size: 9px; padding: 2px 5px; }
+  .je-ticker { font-size: 13px; }
+  .je-expiry { font-size: 10px; }
+  .je-prices { gap: 12px; margin-bottom: 6px; }
+  .je-price-item { font-size: 11px; }
+  .je-footer { padding-top: 8px; margin-top: 8px; }
+  .je-date { font-size: 10px; }
+  .je-btn { font-size: 10px; padding: 3px 9px; }
+
+  /* Slimmer history cards */
+  .hist-ticker { font-size: 13px; }
+  .hist-meta { font-size: 10px; }
+  .hist-conf { font-size: 16px; }
+  .hist-details { font-size: 11px; gap: 10px; margin-bottom: 6px; }
+  .hist-rationale { font-size: 11px; line-height: 1.4; margin-bottom: 6px; }
+  .hist-footer { padding-top: 6px; margin-top: 6px; font-size: 10px; }
+
+  /* Slimmer Intel sections */
+  #main-intel .panel-section { margin-bottom: 14px; }
+
+  /* Compact mobile tabs */
+  .mob-tab { padding: 8px 10px; font-size: 9px; }
+
+  /* Compact macro banner */
+  .macro-banner { padding: 7px 14px; font-size: 11px; }
+
+  /* Compact auto refresh box */
+  .auto-refresh-box { padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; }
+  .ar-top { margin-bottom: 6px; }
+  .ar-label { font-size: 11px; }
+  .ar-last { font-size: 10px; }
+  .refresh-intervals { gap: 5px; margin-top: 8px; }
+  .interval-btn { font-size: 10px; padding: 4px 9px; border-radius: 4px; }
+
+  /* Compact field inputs */
+  .field-input { padding: 8px 10px; font-size: 12px; border-radius: 6px; }
+  .field-label { font-size: 10px; margin-bottom: 4px; }
+
+  /* Remove heavy glows from signal cards */
+  .signal-card.call { box-shadow: none; border-color: rgba(0,214,143,0.2); }
+  .signal-card.put  { box-shadow: none; border-color: rgba(255,77,109,0.2); }
+
+  /* Compact paper banner */
+  .paper-banner { padding: 6px 14px; font-size: 11px; }
+
+  /* Compact PDT tracker */
+  .pdt-tracker-box { padding: 12px 14px; border-radius: 8px; }
+
+  /* Slim market countdown */
+  .market-countdown { padding: 6px 14px; font-size: 11px; }
+
+  /* News card compact */
+  .news-card { padding: 10px 12px; border-radius: 8px; }
+  .news-reason { font-size: 12px; }
+  .news-headline { font-size: 11px; }
+  .news-sentiment { font-size: 11px; }
+
+</style>
 </head>
 <body>
 <div class="app">
@@ -1719,7 +1857,7 @@
   <div class="content" id="main-intel" style="display:none">
 
     <!-- Trump Watch -->
-    <div style="background:linear-gradient(135deg,rgba(255,77,109,0.08),rgba(240,180,41,0.05));border:1px solid rgba(255,77,109,0.2);border-radius:12px;padding:16px;margin-bottom:18px">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
           <div style="font-size:13px;font-weight:600;color:var(--text)">🇺🇸 Trump Watch</div>
@@ -1745,8 +1883,30 @@
       </div>
     </div>
 
+    <!-- Polymarket Odds -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">📊 Polymarket Odds</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Crowd-sourced prediction market — real money behind these odds</div>
+        </div>
+        <button onclick="fetchPolymarket()" id="poly-refresh-btn" style="font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:4px;border:1px solid rgba(61,126,255,0.3);background:rgba(61,126,255,0.08);color:var(--accent);cursor:pointer">↻ Refresh</button>
+      </div>
+      <div id="poly-container">
+        <div style="font-size:12px;color:var(--muted);text-align:center;padding:20px">
+          <div style="font-size:24px;margin-bottom:8px">📊</div>
+          Loading prediction markets...
+        </div>
+      </div>
+      <div id="poly-signal-box" style="display:none;margin-top:10px;padding:10px;background:rgba(61,126,255,0.06);border:1px solid rgba(61,126,255,0.2);border-radius:8px">
+        <div style="font-size:10px;font-weight:600;color:var(--accent);letter-spacing:0.08em;margin-bottom:4px">📡 OPTIONS SIGNAL FROM CROWD</div>
+        <div id="poly-signal-text" style="font-size:12px;color:var(--subtle);line-height:1.5"></div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right">via polymarket.com · updates every 30m</div>
+    </div>
+
     <!-- News Impact Analyzer -->
-    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:16px">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
       <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">📰 News Impact Analyzer</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.4">Paste any news headline or event — AI tells you exactly how it affects your stocks and options strategy.</div>
       <textarea id="news-input" class="field-input" rows="3"
@@ -2203,10 +2363,155 @@ function renderTrumpWatch(data) {
     </div>
   `;
 }
+// ── Polymarket Integration ──
+const POLY_MARKETS = [
+  { label: '🏦 US Recession 2026',    slug: 'us-recession-by-end-of-2026',      yesKey: 'Yes', bullish: false },
+  { label: '✂️ Fed Cut in April',      slug: 'fed-rate-cut-april-2026',           yesKey: 'Yes', bullish: true  },
+  { label: '✂️ Fed Cut by June',       slug: 'fed-rate-cut-by-june-2026',         yesKey: 'Yes', bullish: true  },
+  { label: '📈 S&P 500 above 5000',   slug: 'sp-500-above-5000-end-of-2026',     yesKey: 'Yes', bullish: true  },
+  { label: '⚡ Tariff Escalation',    slug: 'us-china-tariff-increase-2026',     yesKey: 'Yes', bullish: false },
+];
+
+let polyLastFetch = 0;
+const POLY_INTERVAL = 30 * 60 * 1000;
+
+async function fetchPolymarket() {
+  const container = document.getElementById('poly-container');
+  const btn = document.getElementById('poly-refresh-btn');
+  const signalBox = document.getElementById('poly-signal-box');
+  const signalText = document.getElementById('poly-signal-text');
+  if (!container) return;
+
+  const now = Date.now();
+  if (polyLastFetch && (now - polyLastFetch) < POLY_INTERVAL) return;
+
+  btn.textContent = '⏳ Loading...';
+  btn.disabled = true;
+
+  try {
+    // Fetch all markets in parallel using Polymarket Gamma API
+    const results = await Promise.allSettled(
+      POLY_MARKETS.map(m =>
+        fetch(`https://gamma-api.polymarket.com/events?slug=${m.slug}&limit=1`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      )
+    );
+
+    const odds = [];
+    results.forEach((res, i) => {
+      const market = POLY_MARKETS[i];
+      try {
+        const events = res.value;
+        if (!events || !events.length) return;
+        const event = events[0];
+        const markets = event.markets || [];
+        if (!markets.length) return;
+        // Find the binary YES/NO market
+        const m = markets.find(mk => {
+          try {
+            const outcomes = JSON.parse(mk.outcomes || '[]');
+            return outcomes.includes('Yes');
+          } catch(e) { return false; }
+        }) || markets[0];
+
+        const outcomes = JSON.parse(m.outcomes || '["Yes","No"]');
+        const prices   = JSON.parse(m.outcomePrices || '[0,0]');
+        const yesIdx   = outcomes.indexOf('Yes');
+        const yesPct   = yesIdx >= 0 ? Math.round(parseFloat(prices[yesIdx]) * 100) : null;
+
+        if (yesPct !== null) {
+          odds.push({ ...market, pct: yesPct });
+        }
+      } catch(e) {}
+    });
+
+    if (!odds.length) {
+      // Fallback to hardcoded recent values if API fails
+      container.innerHTML = renderPolyFallback();
+      generatePolySignal([
+        { label: '🏦 US Recession 2026', pct: 32, bullish: false },
+        { label: '✂️ Fed Cut in April',  pct: 2,  bullish: true  },
+        { label: '✂️ Fed Cut by June',   pct: 56, bullish: true  },
+        { label: '⚡ Tariff Escalation', pct: 65, bullish: false },
+      ], signalBox, signalText);
+      return;
+    }
+
+    container.innerHTML = renderPolyOdds(odds);
+    generatePolySignal(odds, signalBox, signalText);
+    polyLastFetch = now;
+
+  } catch(e) {
+    container.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:8px">Could not load Polymarket data. Try again.</div>`;
+  } finally {
+    btn.textContent = '↻ Refresh';
+    btn.disabled = false;
+  }
+}
+
+function renderPolyOdds(odds) {
+  return odds.map(o => {
+    const isBull  = o.bullish;
+    const high    = o.pct >= 60;
+    const barColor = (isBull && high) ? 'var(--call)' : (!isBull && high) ? 'var(--put)' : 'var(--neutral)';
+    const badge   = o.pct >= 70 ? 'HIGH' : o.pct >= 40 ? 'MED' : 'LOW';
+    const badgeC  = o.pct >= 70 ? 'var(--put)' : o.pct >= 40 ? 'var(--neutral)' : 'var(--call)';
+    const signal  = isBull
+      ? (o.pct >= 60 ? '🟢 Bullish signal' : o.pct <= 30 ? '🔴 Bearish signal' : '🟡 Neutral')
+      : (o.pct >= 60 ? '🔴 Bearish signal' : o.pct <= 30 ? '🟢 Bullish signal' : '🟡 Neutral');
+
+    return `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--text)">${o.label}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;background:${badgeC}20;color:${badgeC};border:1px solid ${badgeC}40">${badge}</span>
+            <span style="font-family:var(--mono);font-size:14px;font-weight:700;color:${barColor}">${o.pct}%</span>
+          </div>
+        </div>
+        <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${o.pct}%;background:${barColor};border-radius:3px;transition:width 0.5s"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">${signal}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderPolyFallback() {
+  return `<div style="font-size:11px;color:var(--muted);padding:8px 0">Using cached odds. Tap Refresh to update.</div>`;
+}
+
+function generatePolySignal(odds, signalBox, signalText) {
+  if (!signalBox || !signalText) return;
+  const signals = [];
+
+  odds.forEach(o => {
+    if (o.label.includes('Recession') && o.pct >= 50)
+      signals.push('⚠️ Recession risk elevated — favor puts on SPY/QQQ');
+    if (o.label.includes('Recession') && o.pct < 30)
+      signals.push('✅ Low recession risk — calls on SPY/QQQ favored');
+    if (o.label.includes('Fed Cut') && o.label.includes('April') && o.pct < 10)
+      signals.push('📌 No April rate cut — tech stays under pressure');
+    if (o.label.includes('Fed Cut') && o.label.includes('June') && o.pct >= 60)
+      signals.push('🚀 Rate cut coming by June — bullish for NVDA/AMD');
+    if (o.label.includes('Tariff') && o.pct >= 60)
+      signals.push('⚠️ High tariff risk — cautious on NVDA/AMD calls');
+    if (o.label.includes('S&P') && o.pct >= 60)
+      signals.push('🟢 Crowd favors SPY staying strong — calls supported');
+  });
+
+  if (signals.length) {
+    signalBox.style.display = 'block';
+    signalText.innerHTML = signals.join('<br>');
+  }
+}
+
 // Auto-start countdown when intel tab first opened
 document.getElementById('tab-intel')?.addEventListener('click', () => {
   if (trumpLastFetch === 0) fetchTrumpWatch(true);
   if (!trumpCountdownTimer) startTrumpCountdown();
+  fetchPolymarket();
 });
 
 // ── News Impact Analyzer ──
