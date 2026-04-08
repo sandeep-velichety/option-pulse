@@ -1301,6 +1301,39 @@
     animation: flashBorder 1.2s ease forwards, fadeUp 0.35s ease both;
   }
 
+  /* ── Deep Analysis ── */
+  .deep-ticker-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .deep-ticker-btn.active {
+    background: var(--accent-dim);
+    border-color: rgba(61,126,255,0.5);
+    color: var(--accent);
+  }
+  .deep-mode-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .deep-mode-card:hover { border-color: rgba(61,126,255,0.3); background: var(--surface2); }
+  .deep-mode-card.active {
+    border-color: rgba(61,126,255,0.5);
+    background: rgba(61,126,255,0.06);
+    box-shadow: 0 0 0 1px rgba(61,126,255,0.2);
+  }
+
   /* ── Light Mode ── */
   body.light-mode {
     --bg: #f5f6fa;
@@ -1661,6 +1694,7 @@
   <div class="mob-tab" id="tab-intel" onclick="switchTab('intel')">📡 Intel</div>
   <div class="mob-tab" id="tab-history" onclick="switchTab('history')">📜 History</div>
   <div class="mob-tab" id="tab-journal" onclick="switchTab('journal')">📓 Journal</div>
+  <div class="mob-tab" id="tab-deep" onclick="switchTab('deep')">🔬 Deep</div>
 </div>
 
 <!-- Main -->
@@ -1949,6 +1983,72 @@
         <div class="icon">📜</div>
         <p>No signal history yet.<br>Hit Refresh Now to generate your first signals.</p>
       </div>
+    </div>
+
+  </div>
+
+  <!-- Deep Analysis Panel -->
+  <div class="content" id="main-deep" style="display:none">
+
+    <div class="section-header">
+      <div class="section-title">🔬 Deep Analysis</div>
+      <div style="font-size:10px;color:var(--muted);font-family:var(--mono)">Institutional-grade AI research</div>
+    </div>
+
+    <!-- Ticker selector -->
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      ${['SPY','QQQ','NVDA','AMD','PLTR'].map(t => `
+        <button class="deep-ticker-btn" id="dt-${t}" onclick="selectDeepTicker('${t}')">${t}</button>
+      `).join('')}
+    </div>
+
+    <!-- Analysis type selector -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px">ANALYSIS TYPE</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+
+        <div class="deep-mode-card" id="dm-jpmorgan" onclick="selectDeepMode('jpmorgan')">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="font-size:22px">🏦</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">JPMorgan Earnings Brief</div>
+              <div style="font-size:11px;color:var(--muted)">Pre-earnings analysis, beat/miss history, bull/bear scenarios</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="deep-mode-card" id="dm-citadel" onclick="selectDeepMode('citadel')">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="font-size:22px">📐</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">Citadel Technical Analysis</div>
+              <div style="font-size:11px;color:var(--muted)">Support/resistance, moving averages, entry/stop/target</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="deep-mode-card" id="dm-renaissance" onclick="selectDeepMode('renaissance')">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="font-size:22px">🔭</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">Renaissance Pattern Finder</div>
+              <div style="font-size:11px;color:var(--muted)">Hidden patterns, insider activity, institutional flow</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Generate button -->
+    <button class="generate-btn" onclick="runDeepAnalysis()" id="deep-gen-btn">
+      <span id="deep-gen-icon">🔬</span>
+      <span id="deep-gen-text">Generate Analysis</span>
+    </button>
+
+    <!-- Result area -->
+    <div id="deep-result" style="margin-top:16px;display:none">
+      <div id="deep-result-content" class="ai-analysis" style="font-size:12px;line-height:1.7"></div>
     </div>
 
   </div>
@@ -3760,9 +3860,10 @@ function switchTab(tab) {
   const content    = document.getElementById('main-content');
   const intel      = document.getElementById('main-intel');
   const history    = document.getElementById('main-history');
+  const deep       = document.getElementById('main-deep');
   const rightPanel = document.getElementById('main-right');
 
-  [sidebar, content, intel, history, rightPanel].forEach(el => {
+  [sidebar, content, intel, history, deep, rightPanel].forEach(el => {
     if(el) { el.classList.remove('mob-active'); el.style.display = 'none'; }
   });
   document.querySelectorAll('.mob-tab').forEach(t => t.classList.remove('active'));
@@ -3774,6 +3875,140 @@ function switchTab(tab) {
   else if (tab === 'intel')   { show(intel);      document.getElementById('tab-intel').classList.add('active'); }
   else if (tab === 'history') { show(history);    document.getElementById('tab-history').classList.add('active'); renderHistoryPage(); }
   else if (tab === 'journal') { show(rightPanel); document.getElementById('tab-journal').classList.add('active'); }
+  else if (tab === 'deep')    { show(deep);       document.getElementById('tab-deep').classList.add('active'); initDeepAnalysis(); }
+}
+
+// ── Deep Analysis ──
+let deepTicker = 'NVDA';
+let deepMode   = 'jpmorgan';
+
+function initDeepAnalysis() {
+  selectDeepTicker(deepTicker);
+  selectDeepMode(deepMode);
+}
+
+function selectDeepTicker(t) {
+  deepTicker = t;
+  document.querySelectorAll('.deep-ticker-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById(`dt-${t}`);
+  if (btn) btn.classList.add('active');
+}
+
+function selectDeepMode(m) {
+  deepMode = m;
+  document.querySelectorAll('.deep-mode-card').forEach(b => b.classList.remove('active'));
+  const card = document.getElementById(`dm-${m}`);
+  if (card) card.classList.add('active');
+}
+
+async function runDeepAnalysis() {
+  const btn     = document.getElementById('deep-gen-btn');
+  const icon    = document.getElementById('deep-gen-icon');
+  const text    = document.getElementById('deep-gen-text');
+  const result  = document.getElementById('deep-result');
+  const content = document.getElementById('deep-result-content');
+  if (!btn || !content) return;
+
+  btn.disabled = true;
+  if (icon) icon.textContent = '⏳';
+  if (text) text.textContent = 'Analyzing...';
+  if (result) result.style.display = 'block';
+  if (content) content.innerHTML = `<div class="analyzing"><div class="spinner" style="width:12px;height:12px;border-width:1.5px"></div> Running ${deepMode === 'jpmorgan' ? 'JPMorgan' : deepMode === 'citadel' ? 'Citadel' : 'Renaissance'} analysis on ${deepTicker}...</div>`;
+
+  const cd    = candleData[deepTicker] || {};
+  const price = prices[deepTicker] > 0 ? `$${prices[deepTicker].toFixed(2)}` : 'unknown';
+  const chg   = prevClose[deepTicker] > 0 && prices[deepTicker] > 0
+    ? `${(((prices[deepTicker]-prevClose[deepTicker])/prevClose[deepTicker])*100).toFixed(2)}%` : 'N/A';
+
+  let prompt = '';
+
+  if (deepMode === 'jpmorgan') {
+    prompt = `You are a senior equity research analyst at JPMorgan Chase writing an earnings preview for institutional investors.
+
+Stock: ${deepTicker} | Price: ${price} | Today's change: ${chg}
+RSI: ${cd.rsi||'N/A'} | Volume: ${cd.volume||'N/A'} | Bias: ${cd.candleBias||'N/A'}
+Patterns: ${cd.patterns?.map(p=>p.name).join(', ')||'None'}
+
+Deliver a complete pre-earnings research brief with these sections:
+1. DECISION SUMMARY — buy before earnings / sell before / wait and why
+2. Beat/Miss History — last 4 quarters EPS vs estimates
+3. Upcoming Quarter — revenue & EPS consensus estimates
+4. Key Metrics Wall Street is watching
+5. Implied Move — options market expected move for earnings day (%)
+6. Bull Case — scenario and price target
+7. Bear Case — scenario and downside risk
+8. Recommended Options Play — specific strike, expiry, and direction
+
+Be specific with numbers. Format clearly with section headers.`;
+
+  } else if (deepMode === 'citadel') {
+    prompt = `You are a senior quantitative trader at Citadel combining technical analysis with statistical models.
+
+Stock: ${deepTicker} | Price: ${price} | Today's change: ${chg}
+RSI: ${cd.rsi||'N/A'} | MACD hist: ${cd.macd?.hist?.toFixed(3)||'N/A'} | Volume: ${cd.volume||'N/A'}
+Bias: ${cd.candleBias||'N/A'} | Patterns: ${cd.patterns?.map(p=>p.name).join(', ')||'None'}
+
+Deliver a full technical analysis report card:
+1. TRADE PLAN — entry price, stop-loss, profit target, confidence rating (Strong Buy/Buy/Neutral/Sell/Strong Sell)
+2. Trend Direction — daily, weekly, monthly timeframes
+3. Support & Resistance — exact key price levels
+4. Moving Averages — 50d, 100d, 200d and where price sits relative to each
+5. Indicators — RSI, MACD, Bollinger Bands in plain English
+6. Volume Analysis — buyers or sellers in control?
+7. Chart Pattern — identify any major pattern forming
+8. Risk/Reward Ratio — for the current setup
+
+Be specific with price levels. Format clearly.`;
+
+  } else {
+    prompt = `You are a quantitative researcher at Renaissance Technologies finding statistical edges in markets.
+
+Stock: ${deepTicker} | Price: ${price} | Today's change: ${chg}
+RSI: ${cd.rsi||'N/A'} | Volume: ${cd.volume||'N/A'} | Bias: ${cd.candleBias||'N/A'}
+
+Deliver a quantitative research memo:
+1. STATISTICAL EDGE SUMMARY — what gives this stock a measurable advantage right now
+2. Seasonal Patterns — best and worst months historically
+3. Day-of-Week Effects — any consistent patterns by weekday
+4. Macro Correlations — Fed meetings, CPI, earnings reactions
+5. Insider Activity — recent buying or selling from filings
+6. Institutional Flow — are big funds accumulating or distributing?
+7. Short Interest — squeeze potential analysis
+8. Unusual Options Activity — any large bets worth watching
+9. Sector Rotation — signals affecting this stock
+10. Highest-Probability Setup — one specific trade based on patterns
+
+Use data. Be specific. Format with clear section headers.`;
+  }
+
+  try {
+    const res  = await fetch('/.netlify/functions/signals', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1000, messages:[{role:'user',content:prompt}] })
+    });
+    const data = await res.json();
+    const txt  = data.content?.map(b=>b.text||'').join('') || 'Analysis failed.';
+    const fmt  = txt
+      .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+      .replace(/^(\d+\.\s[A-Z \/&—-]+)/gm,'<br><strong style="color:var(--accent)">$1</strong>')
+      .replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>');
+    const labels = {jpmorgan:'🏦 JPMorgan Earnings Brief',citadel:'📐 Citadel Technical Analysis',renaissance:'🔭 Renaissance Pattern Finder'};
+    if (content) content.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--accent)">${labels[deepMode]}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${deepTicker} @ ${price}</span>
+      </div>
+      ${fmt}
+      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">
+        ⚠️ AI-generated for educational purposes only. Not financial advice.
+      </div>`;
+  } catch(e) {
+    if (content) content.innerHTML = 'Analysis failed. Check your connection.';
+  }
+
+  btn.disabled = false;
+  if (icon) icon.textContent = '🔬';
+  if (text) text.textContent = 'Generate Analysis';
 }
 
 
