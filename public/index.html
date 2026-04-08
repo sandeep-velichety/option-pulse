@@ -2128,7 +2128,7 @@ async function fetchTrumpWatch(manual = false) {
       })
     });
     const data = await res.json();
-    const raw = data.extractedText || (data.content?.map(b => b.text || '').join('') || '');
+    const raw = stripCitations(data.extractedText || (data.content?.map(b => b.text || '').join('') || ''));
     
     let trump;
     try {
@@ -2232,7 +2232,7 @@ async function analyzeNewsImpact() {
       body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, news_search: true, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
-    const raw  = data.extractedText || data.content?.map(b => b.text || '').join('') || '';
+    const raw  = stripCitations(data.extractedText || data.content?.map(b => b.text || '').join('') || '');
     
     // Try JSON first, fall back to showing raw text
     try {
@@ -3346,6 +3346,15 @@ function updateSentimentBar(signals) {
 
 
 // ── Safe JSON extractor ──
+function stripCitations(text) {
+  if (!text) return '';
+  return text
+    .replace(/]*>/gi, '')
+    .replace(/<\/antml:cite>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
 function extractJSON(raw) {
   if (!raw) return '[]';
   // Strip markdown code blocks
@@ -3353,26 +3362,42 @@ function extractJSON(raw) {
     .replace(/^```[\w]*\n?/gm, '')
     .replace(/\n?```$/gm, '')
     .trim();
-  // Try to find JSON array first (for signals)
-  const arrStart = clean.indexOf('[');
-  const arrEnd   = clean.lastIndexOf(']');
-  if (arrStart !== -1 && arrEnd > arrStart) {
-    try {
-      const candidate = clean.substring(arrStart, arrEnd + 1);
-      JSON.parse(candidate); // validate
-      return candidate;
-    } catch(e) {}
-  }
-  // Try to find JSON object
+
+  // Try JSON object first (most AI responses are objects)
   const objStart = clean.indexOf('{');
-  const objEnd   = clean.lastIndexOf('}');
-  if (objStart !== -1 && objEnd > objStart) {
-    try {
-      const candidate = clean.substring(objStart, objEnd + 1);
-      JSON.parse(candidate); // validate
-      return candidate;
-    } catch(e) {}
+  if (objStart !== -1) {
+    // Find matching closing brace by counting depth
+    let depth = 0, objEnd = -1;
+    for (let i = objStart; i < clean.length; i++) {
+      if (clean[i] === '{') depth++;
+      else if (clean[i] === '}') { depth--; if (depth === 0) { objEnd = i; break; } }
+    }
+    if (objEnd !== -1) {
+      try {
+        const candidate = clean.substring(objStart, objEnd + 1);
+        JSON.parse(candidate);
+        return candidate;
+      } catch(e) {}
+    }
   }
+
+  // Try JSON array (for signals array)
+  const arrStart = clean.indexOf('[');
+  if (arrStart !== -1) {
+    let depth = 0, arrEnd = -1;
+    for (let i = arrStart; i < clean.length; i++) {
+      if (clean[i] === '[') depth++;
+      else if (clean[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
+    }
+    if (arrEnd !== -1) {
+      try {
+        const candidate = clean.substring(arrStart, arrEnd + 1);
+        JSON.parse(candidate);
+        return candidate;
+      } catch(e) {}
+    }
+  }
+
   return clean;
 }
 
@@ -4033,7 +4058,7 @@ async function fetchMarketNews(sym) {
       })
     });
     const data = await res.json();
-    const raw  = data.content?.map(b => b.text || '').join('') || '';
+    const raw  = stripCitations(data.content?.map(b => b.text || '').join('') || '');
 
     let news;
     try {
