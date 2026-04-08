@@ -2528,29 +2528,26 @@ async function analyzeNewsImpact() {
 
   const currentPrices = TICKERS.map(sym => prices[sym] > 0 ? `${sym}: $${prices[sym].toFixed(2)}` : `${sym}: unknown`).join(', ');
 
-  const prompt = 'You are an expert financial analyst. A beginner options trader saw this news: "' + input + '". Current prices: ' + currentPrices + '. Watchlist: SPY, QQQ, NVDA, AMD, PLTR.\n\nAnalyze this news and respond ONLY with a JSON object (no markdown, no backticks):\n{"headline":"one line summary","marketImpact":"BULLISH or BEARISH or NEUTRAL or VOLATILE","impactLevel":"LOW or MEDIUM or HIGH","summary":"2-sentence explanation","stockImpacts":[{"ticker":"SPY","impact":"POSITIVE or NEGATIVE or NEUTRAL","reason":"why"},{"ticker":"QQQ","impact":"...","reason":"..."},{"ticker":"NVDA","impact":"...","reason":"..."},{"ticker":"AMD","impact":"...","reason":"..."},{"ticker":"PLTR","impact":"...","reason":"..."}],"optionsAdvice":"2-3 sentence advice for options traders","watchFor":"One thing to monitor next 24-48 hours"}';
+  const prompt = 'You are a financial analyst. News: "' + input + '". Prices: ' + currentPrices + '.\n\nRespond ONLY with valid JSON, no markdown, no citations:\n{"headline":"summary","marketImpact":"BULLISH","impactLevel":"HIGH","summary":"explanation","stockImpacts":[{"ticker":"SPY","impact":"POSITIVE","reason":"why"},{"ticker":"QQQ","impact":"POSITIVE","reason":"why"},{"ticker":"NVDA","impact":"POSITIVE","reason":"why"},{"ticker":"AMD","impact":"NEUTRAL","reason":"why"},{"ticker":"PLTR","impact":"NEUTRAL","reason":"why"}],"optionsAdvice":"advice","watchFor":"what to watch"}';
 
   try {
     const res  = await fetch('/api/signals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, news_search: true, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
     const raw  = stripCitations(data.extractedText || data.content?.map(b => b.text || '').join('') || '');
     
-    // Try JSON first, fall back to showing raw text
     try {
       const clean = extractJSON(raw);
       const analysis = JSON.parse(clean);
-      // Validate it has real content
       if (analysis && (analysis.marketImpact || analysis.summary)) {
         renderNewsImpact(analysis);
       } else {
-        throw new Error('Empty analysis');
+        throw new Error('Empty');
       }
     } catch(parseErr) {
-      // Show raw AI response directly
       result.innerHTML = `<div class="ai-analysis" style="margin-top:8px"><strong style="color:var(--accent)">Analysis:</strong><br><br>${raw.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>`;
     }
   } catch(e) {
@@ -4732,7 +4729,7 @@ function sendReportEmail(monthName, pnl, executed, watched) {
   const watchList = trades.filter(t=>t.tradeType2==='WATCHED').map(t=>`• ${t.direction} ${t.ticker} $${t.strike} ${t.expiry} — ${t.status}`).join('\n');
 
   const subject = encodeURIComponent(`OptionPulse Report — ${monthName}`);
-  const body    = encodeURIComponent(`OptionPulse Monthly Report — ${monthName}\n\nEXECUTED TRADES (${executed}):\n${didList||'None'}\n\nWATCHED TRADES (${watched}):\n${watchList||'None'}\n\nTOTAL PAPER P&L: ${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(0)}\n\n— optionpulse.netlify.app`);
+  const body    = encodeURIComponent(`OptionPulse Monthly Report — ${monthName}\n\nEXECUTED TRADES (${executed}):\n${didList||'None'}\n\nWATCHED TRADES (${watched}):\n${watchList||'None'}\n\nTOTAL PAPER P&L: ${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(0)}\n\n— option-pulse-production.up.railway.app`);
   window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
   if (status) status.textContent = '✅ Opening email app...';
 }
