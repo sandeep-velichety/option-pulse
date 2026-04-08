@@ -3370,54 +3370,82 @@ Intraday trend: ${trend}. NVDA has earnings in ~3 weeks (elevated IV risk).
 - NEVER invent a date not listed above (Apr 3, Apr 5 etc do not exist)
 - Format exactly as shown e.g. "Apr 10" not "April 10"`;
 
-  const prompt = `You are an options trading signal AI for a beginner paper trader using Robinhood.
-The trader watches: SPY, QQQ, NVDA, AMD, PLTR.
-They are a BEGINNER focused on learning, not aggressive profits.
-PDT rule applies (max 3 day trades/week). Prefer swing trades (multi-day) over day trades.
+  const vixLevel = parseFloat(document.getElementById('vix-val')?.textContent || '20');
+  const budgetPerTrade = 125; // $100-150 budget
+
+  const prompt = `You are a professional options trading signal generator for a beginner trader.
+
+TRADER PROFILE:
+- Budget per trade: $100-150 max
+- Platform: Robinhood
+- PDT rule applies (max 3 day trades/week)
+- Watching: SPY, QQQ, NVDA, AMD, PLTR
+- Goal: LEARNING with real money, preserve capital
 
 ${marketContext}
 ${candleContext}
 ${expiryNote}
 
-IMPORTANT RULES for strikes:
-- SPY strikes: use round numbers near current price (e.g. if SPY=$557, use $555C or $560C)
-- QQQ strikes: round numbers near current price
-- NVDA strikes: increments of $5 near current price
-- AMD strikes: increments of $2.50 near current price
-- PLTR strikes: increments of $1 near current price (it's a lower-priced stock)
-- Always pick strikes that are slightly OTM (out of the money) for calls/puts
-- Entry price should be realistic for that strike (typically $1-$8 for beginner-friendly contracts)
+CRITICAL RULES — FOLLOW STRICTLY:
 
-Generate 2-3 realistic options trading signals. 
+1. IV RULE: If IV > 50%, do NOT suggest buying options (premium too expensive). 
+   Instead flag it as "SKIP — IV too high, wait for IV to drop"
+   
+2. POSITION SIZING: Entry price must allow 1 contract within $100-150 budget.
+   If option costs more than $1.50, it's too expensive for this budget.
+   
+3. STOP LOSS: Always include exact stop loss price (50% of entry price).
+   Example: if entry is $1.20, stop loss is $0.60.
+   
+4. RISK/REWARD: Only suggest trades with at least 1:2 risk/reward.
+   If stop is $0.60 loss, target must be at least $1.20 gain.
+
+5. GRADE system:
+   - A grade: IV < 30%, RSI not extreme, clear pattern, good volume, near support/resistance
+   - B grade: IV 30-50%, decent setup but some risk
+   - C grade: Skip this — too risky, IV too high, or unclear setup
+
+6. MARKET CONTEXT: VIX is ${vixLevel}. 
+   VIX > 25 = high fear, favor puts or no trade. 
+   VIX > 35 = extreme fear, AVOID buying options entirely (IV crush risk).
+
+7. STRIKES: Always slightly OTM but within 1-2% of current price.
+   - SPY: round numbers ($5 increments)
+   - NVDA/AMD: $2.50-$5 increments  
+   - PLTR: $1 increments
+
+Generate 2-3 signals. If market conditions are bad (VIX > 35 or all IVs high), 
+generate 1 signal with grade C and explain why to wait.
+
 Respond ONLY with a JSON array, no markdown, no extra text.
 
-Each signal object must have exactly these fields:
+Each signal must have exactly these fields:
 {
-  "ticker": "SPY",
-  "direction": "CALL" or "PUT",
-  "tradeType": "swing" or "day",
-  "strike": "$560C",
-  "expiry": "Apr 10",
-  "entryPrice": "~$2.80",
-  "maxRisk": "$280",
-  "confidence": 75,
-  "iv": "32%",
+  "ticker": "AMD",
+  "direction": "CALL",
+  "tradeType": "swing",
+  "strike": "$222.50C",
+  "expiry": "Apr 15",
+  "entryPrice": "~$1.20",
+  "stopLoss": "$0.60",
+  "target": "$2.40",
+  "contracts": 1,
+  "maxRisk": "$120",
+  "grade": "B",
+  "confidence": 72,
+  "iv": "45%",
+  "ivWarning": false,
   "volume": "High",
-  "mfi": 62,
+  "mfi": 68,
   "mfiSignal": "Bullish",
-  "rationale": "2-3 sentence plain English explanation referencing actual current price",
-  "indicators": [{"label":"RSI 52","type":"green"},{"label":"MACD Cross","type":"green"},{"label":"IV 28% cheap","type":"yellow"},{"label":"MFI 62 Bullish","type":"green"},{"label":"Vol High","type":"green"}],
+  "rationale": "2-3 sentences explaining setup, referencing actual price. Include why this fits the $100-150 budget.",
+  "skipReason": "",
+  "indicators": [{"label":"RSI 65","type":"green"},{"label":"IV 45% OK","type":"yellow"},{"label":"Stop $0.60","type":"red"}],
   "time": "${new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}"
 }
 
-Field notes:
-- iv: implied volatility as a percentage string (e.g. "32%", "65%")
-- volume: "Low" | "Average" | "High" | "Very High" — estimated relative volume for that option
-- mfi: Money Flow Index value 0-100 (>60 = bullish money flow, <40 = bearish, 40-60 = neutral)
-- mfiSignal: "Bullish" | "Bearish" | "Neutral" based on MFI value and direction
-- Always include MFI and volume as indicator tags too
-type for indicators: "green" (bullish/good), "red" (bearish/risk), "yellow" (caution/neutral)
-Keep rationale beginner-friendly. Flag day trades clearly. Max confidence 85.`;
+If grade is C or ivWarning is true, set skipReason to explain why to skip this trade.
+Keep rationale beginner-friendly and honest about risks.`;
 
   try {
     // Route through Netlify function to avoid CORS on mobile Safari
@@ -3495,7 +3523,16 @@ function renderSignals(signals) {
     card.style.animationDelay = `${i * 0.07}s`;
     card.dataset.id = s.id || i;
 
+    const gradeColor = s.grade === 'A' ? 'var(--call)' : s.grade === 'B' ? 'var(--neutral)' : 'var(--put)';
+    const gradeEmoji = s.grade === 'A' ? '🟢' : s.grade === 'B' ? '🟡' : '🔴';
+    const ivNum = parseFloat(s.iv || '30');
+    const ivColor = ivNum > 50 ? 'var(--put)' : ivNum > 35 ? 'var(--neutral)' : 'var(--call)';
+    const ivLabel = ivNum > 50 ? 'HIGH — expensive' : ivNum > 35 ? 'MODERATE' : 'LOW — cheap';
+
     card.innerHTML = `
+      ${s.ivWarning ? `<div style="background:rgba(255,77,109,0.12);border:1px solid rgba(255,77,109,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--put)">⚠️ <strong>IV WARNING:</strong> IV at ${s.iv} is too expensive to buy. Consider waiting for IV to drop below 40%.</div>` : ''}
+      ${s.skipReason ? `<div style="background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--neutral)">⛔ <strong>Consider Skipping:</strong> ${s.skipReason}</div>` : ''}
+
       <div class="signal-top">
         <div class="signal-left">
           <div class="direction-badge">${s.direction} ${isCall ? '▲' : '▼'}</div>
@@ -3505,9 +3542,12 @@ function renderSignals(signals) {
           </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <div class="signal-confidence">
-            <div class="conf-value">${s.confidence}%</div>
-            <div class="conf-label">Confidence</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:${gradeColor};background:${gradeColor}18;border:1px solid ${gradeColor}40;padding:2px 8px;border-radius:5px">${gradeEmoji} Grade ${s.grade || 'B'}</div>
+            <div class="signal-confidence">
+              <div class="conf-value">${s.confidence}%</div>
+              <div class="conf-label">Conf.</div>
+            </div>
           </div>
           <button onclick="dismissSignal(this)" style="font-size:9px;font-family:var(--mono);padding:2px 7px;border-radius:4px;border:1px solid var(--border2);background:none;color:var(--muted);cursor:pointer">✕ Dismiss</button>
         </div>
@@ -3516,41 +3556,46 @@ function renderSignals(signals) {
       <div class="signal-details">
         <div class="detail-box"><div class="detail-label">Strike</div><div class="detail-value" style="font-size:15px">${s.strike}</div></div>
         <div class="detail-box"><div class="detail-label">Expiry</div><div class="detail-value" style="font-size:15px">${s.expiry}</div></div>
-        <div class="detail-box"><div class="detail-label">Entry Price</div><div class="detail-value" style="font-size:15px">${s.entryPrice}</div></div>
-        <div class="detail-box"><div class="detail-label">Max Risk</div><div class="detail-value" style="color:var(--put);font-size:15px">${s.maxRisk}</div></div>
+        <div class="detail-box"><div class="detail-label">Entry</div><div class="detail-value" style="font-size:15px">${s.entryPrice}</div></div>
+        <div class="detail-box"><div class="detail-label">Contracts</div><div class="detail-value" style="font-size:15px;color:var(--accent)">${s.contracts || 1}</div></div>
+      </div>
+
+      <!-- Stop Loss / Target / Risk row -->
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <div style="flex:1;background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.2);border-radius:7px;padding:7px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">STOP LOSS</div>
+          <div style="font-family:var(--mono);font-size:14px;color:var(--put);font-weight:600">${s.stopLoss || 'N/A'}</div>
+          <div style="font-size:9px;color:var(--muted)">exit if hits this</div>
+        </div>
+        <div style="flex:1;background:rgba(0,214,143,0.06);border:1px solid rgba(0,214,143,0.2);border-radius:7px;padding:7px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">TARGET</div>
+          <div style="font-family:var(--mono);font-size:14px;color:var(--call);font-weight:600">${s.target || 'N/A'}</div>
+          <div style="font-size:9px;color:var(--muted)">take profit here</div>
+        </div>
+        <div style="flex:1;background:rgba(255,77,109,0.05);border:1px solid var(--border);border-radius:7px;padding:7px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">MAX RISK</div>
+          <div style="font-family:var(--mono);font-size:14px;color:var(--put);font-weight:600">${s.maxRisk}</div>
+          <div style="font-size:9px;color:var(--muted)">budget check ✓</div>
+        </div>
       </div>
 
       ${s.iv || s.mfi || s.volume ? `
       <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         ${s.iv ? `<div class="detail-box" style="flex:1;min-width:70px">
           <div class="detail-label">IV</div>
-          <div class="detail-value" style="color:${parseFloat(s.iv)>50?'var(--neutral)':'var(--call)'}">${s.iv}</div>
+          <div class="detail-value" style="color:${ivColor}">${s.iv}</div>
+          <div style="font-size:9px;color:${ivColor}">${ivLabel}</div>
         </div>` : ''}
         ${s.mfi ? `<div class="detail-box" style="flex:1;min-width:70px">
           <div class="detail-label">MFI</div>
-          <div class="detail-value" style="color:${s.mfi>60?'var(--call)':s.mfi<40?'var(--put)':'var(--neutral)'}">${s.mfi} <span style="font-size:10px">${s.mfiSignal||''}</span></div>
+          <div class="detail-value" style="color:${s.mfi>60?'var(--call)':s.mfi<40?'var(--put)':'var(--neutral)'}">${s.mfi}</div>
+          <div style="font-size:9px;color:var(--muted)">${s.mfiSignal||''}</div>
         </div>` : ''}
         ${s.volume ? `<div class="detail-box" style="flex:1;min-width:70px">
           <div class="detail-label">Volume</div>
           <div class="detail-value" style="color:${s.volume==='High'||s.volume==='Very High'?'var(--call)':s.volume==='Low'?'var(--put)':'var(--text)'}">${s.volume}</div>
         </div>` : ''}
       </div>` : ''}
-
-      <!-- Greeks row -->
-      <div style="display:flex;gap:8px;margin-bottom:10px;padding:8px 10px;background:rgba(61,126,255,0.04);border:1px solid rgba(61,126,255,0.1);border-radius:7px">
-        <div style="flex:1;text-align:center">
-          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">DELTA</div>
-          <div style="font-family:var(--mono);font-size:13px;color:${isCall?'var(--call)':'var(--put)'};">${estDelta}</div>
-        </div>
-        <div style="flex:1;text-align:center;border-left:1px solid var(--border)">
-          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">THETA/DAY</div>
-          <div style="font-family:var(--mono);font-size:13px;color:var(--put);">${estTheta}</div>
-        </div>
-        <div style="flex:1;text-align:center;border-left:1px solid var(--border)">
-          <div style="font-size:9px;color:var(--muted);letter-spacing:0.08em;margin-bottom:2px">IV RANK</div>
-          <div style="font-family:var(--mono);font-size:13px;color:${parseFloat(s.iv||'30')>50?'var(--neutral)':'var(--call)'};">${s.iv||'—'}</div>
-        </div>
-      </div>
 
       <div class="signal-rationale" style="font-size:13px;line-height:1.6"><strong>Rationale:</strong> ${s.rationale}</div>
       <div class="signal-indicators" style="margin-top:8px">${inds}</div>
