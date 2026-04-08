@@ -2277,7 +2277,7 @@ async function fetchTrumpWatch(manual = false) {
   const prompt = 'Search the web for the latest Trump news from today and this week that could affect the stock market. Today is ' + today + '. Current prices: ' + (currentPrices || 'unavailable') + '. Watchlist: SPY, QQQ, NVDA, AMD, PLTR.\n\nFind the most recent Trump statements, executive orders, tariff news, or policy announcements from the past 48 hours that could move markets.\n\nRespond ONLY with a JSON object (no markdown):\n{"lastUpdated":"' + today + '","overallSentiment":"BULLISH or BEARISH or VOLATILE or NEUTRAL","marketAlert":"HIGH or MEDIUM or LOW","statements":[{"source":"Reuters or CNBC etc","content":"Brief summary","marketImpact":"BULLISH or BEARISH or VOLATILE or NEUTRAL","affectedStocks":["SPY"],"traderAction":"One sentence advice"}],"bottomLine":"2-sentence market impact summary","optionsStrategy":"Specific options trader advice this week"}\n\nInclude 2-4 most relevant recent developments. Focus on tariffs, trade war, tech policy, AI regulation, executive orders.';
 
   try {
-    const res = await fetch('/api/signals', {
+    const res = await fetch('/.netlify/functions/signals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3370,7 +3370,9 @@ Intraday trend: ${trend}. NVDA has earnings in ~3 weeks (elevated IV risk).
 - NEVER invent a date not listed above (Apr 3, Apr 5 etc do not exist)
 - Format exactly as shown e.g. "Apr 10" not "April 10"`;
 
-  const vixLevel = parseFloat(document.getElementById('vix-val')?.textContent || '20');
+  const vixText = document.getElementById('vix-val')?.textContent || '20';
+  const vixValue = parseFloat(vixText.match(/[\d.]+/)?.[0] || '20');
+  const vixLevel = vixValue;
   const budgetPerTrade = 125; // $100-150 budget
 
   const prompt = `You are a professional options trading signal generator for a beginner trader.
@@ -3401,21 +3403,22 @@ CRITICAL RULES — FOLLOW STRICTLY:
    If stop is $0.60 loss, target must be at least $1.20 gain.
 
 5. GRADE system:
-   - A grade: IV < 30%, RSI not extreme, clear pattern, good volume, near support/resistance
-   - B grade: IV 30-50%, decent setup but some risk
-   - C grade: Skip this — too risky, IV too high, or unclear setup
+   - A grade: IV < 40%, RSI not extreme, clear pattern, good volume
+   - B grade: IV 40-65%, decent setup, manageable risk
+   - C grade: IV > 65% AND unclear pattern AND no volume confirmation (ALL three must be true)
 
 6. MARKET CONTEXT: VIX is ${vixLevel}. 
-   VIX > 25 = high fear, favor puts or no trade. 
-   VIX > 35 = extreme fear, AVOID buying options entirely (IV crush risk).
+   VIX 20-30 = elevated, be selective but still trade.
+   VIX 30-40 = high fear, favor shorter expiries and smaller size.
+   VIX > 40 = extreme fear, only grade C signals, warn to wait for stabilization.
 
 7. STRIKES: Always slightly OTM but within 1-2% of current price.
    - SPY: round numbers ($5 increments)
    - NVDA/AMD: $2.50-$5 increments  
    - PLTR: $1 increments
 
-Generate 2-3 signals. If market conditions are bad (VIX > 35 or all IVs high), 
-generate 1 signal with grade C and explain why to wait.
+Generate 2-3 signals. If VIX > 40 AND all setups are unclear, 
+generate 1 signal with grade C and explain why to wait for better conditions.
 
 Respond ONLY with a JSON array, no markdown, no extra text.
 
