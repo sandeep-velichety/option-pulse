@@ -1,0 +1,16 @@
+{
+  "name": "@trading-council/execution",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@trading-council/contracts": "*",
+    "@alpacahq/alpaca-trade-api": "^4.0.0"
+  }
+}

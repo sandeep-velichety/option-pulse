@@ -1,0 +1,16 @@
+{
+  "name": "@trading-council/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "node-pg-migrate": "^7.6.0"
+  }
+}
