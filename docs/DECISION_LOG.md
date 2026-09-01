@@ -217,6 +217,57 @@ can complete) — config files not yet written, nothing provisioned.
     a portfolio-level halt).
 - No code changed in this pass — documentation only.
 
+**2026-09-01 (cont'd) — RAG feasibility review; LLM token/prompt observability designed.**
+
+- Ran a three-specialist review (backend-systems-architect, software-architect,
+  enterprise-cto) on whether to build a RAG pipeline (embeddings + vector
+  search) for the planned macro pipeline, agent memory store, post-mortem
+  lessons, and strategy graveyard. **Unanimous defer.** Key reasons: the
+  system's identical per-day `MacroContext` is a perfect prompt-cache prefix
+  on `claude-opus-5` — per-agent semantic retrieval would break that caching
+  for worse determinism; Anthropic's own Managed-Agents memory store uses
+  plain file-based `grep`/`glob`, not vector search, for the same use case;
+  every candidate consumer is Tier 2/3 and unbuilt, failing the "must exist
+  before the clock starts" test cleanly; and unlike the deadman switch/spend
+  cap (cheap now, expensive later), RAG is expensive now and cheap to add
+  later (`CREATE EXTENSION vector` plus a column, once real data exists).
+  **The one time-sensitive piece:** whatever tables the macro/memory/post-mortem
+  data lands in must retain raw source text verbatim (not just a derived
+  summary) plus a stable id/`created_at`/`kind` discriminator and a JSONB
+  tags column — a schema decision, free now, that forecloses nothing later.
+  Concrete revisit triggers: assembled knowledge block exceeds ~50k tokens in
+  a single prompt, post-mortem lessons exceed ~200 records, or a second
+  hand-written heuristic is needed to decide which tagged lessons to include.
+- Discussed whether Kalshi/Alpaca/crypto integration should go through an
+  MCP server or Claude Code Skills rather than plain in-code API calls.
+  **Resolved: production order execution stays traditional in-code API
+  calls — not actually an open question, since it follows directly from the
+  existing "LLM never places an order" credential-isolation invariant
+  (Council Protocol §5.1). An MCP server giving an LLM live tool-calling
+  access to submit orders would reopen exactly the prompt-injection blast
+  radius that invariant exists to close.** Live MCP/tool access mid-reasoning
+  is also a poor fit for the specialist agent's market-data reads specifically
+  because `MarketSnapshot` is pre-fetched and hashed (`input_hash`) so every
+  decision is reconstructable from an exact, immutable input — live tool
+  calls would break that audit guarantee. Where MCP/Skills *do* fit: purely
+  as dev-time tooling (querying paper accounts, inspecting sandbox endpoints
+  while building `services/execution`), separate from the shipped system, and
+  as reference Skills (curated API knowledge — auth, gotchas, rate limits) to
+  help write the traditional integration code accurately. Neither built yet.
+- **Designed (not yet migrated) LLM token/prompt observability**: extended
+  the `agent_runs` schema with `prompt_version_hash`, `messages` (the exact
+  rendered prompt sent), `effort`, `stop_reason`, and full token/cost columns
+  (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+  `cache_creation_input_tokens`, `cost_usd`); added a `prompt_versions` table
+  to dedupe system prompts (a new hash marks exactly when a prompt changed);
+  added an `llm_cost_by_role_day` aggregation view, including a cache-hit-ratio
+  column that doubles as an early warning if the `MacroContext` caching
+  benefit above ever regresses. Rationale: this is one-way — token/prompt
+  data can't be recovered for calls that already happened, so it ships in
+  migration 001 with everything else, not bolted on later. Full design in
+  `docs/ARCHITECTURE.md`; `packages/db/README.md` updated so migration 001
+  doesn't miss it.
+
 ## 6. Current status / what's next
 
 | Milestone | Status |
