@@ -188,6 +188,35 @@ rather than hardcode a UTC offset that drifts across the DST boundary the
 machine (`railway login` requires an interactive browser flow only the user
 can complete) — config files not yet written, nothing provisioned.
 
+**2026-09-01 — Standing process rule + architecture/deployment/interaction docs.**
+
+- Added `CLAUDE.md` with a standing instruction: update this file at the end
+  of every session that makes a real change, and a restatement of the
+  credential-isolation invariant so it's enforced regardless of which session
+  or agent touches the code.
+- Added three diagram-level docs, all Mermaid (renders natively on GitHub),
+  kept in-repo for the same reason this log is — they don't depend on the
+  Council Protocol / Ship Order web artifacts staying reachable:
+  - `docs/ARCHITECTURE.md` — component diagram (services, Supabase tables,
+    external APIs, the "no public inbound traffic to a credentialed service"
+    invariant drawn explicitly), the credential/DB-role matrix, a full
+    decision-loop sequence diagram (scheduler → specialist → council →
+    sizer → gate → `trade_intents` → execution → Alpaca → reconciliation),
+    and a live-vs-planned status table by architectural layer.
+  - `docs/DEPLOYMENT.md` — the Railway topology from the prior discussion,
+    now diagrammed: one project, three services, `control-plane` as a native
+    Railway Cron Job (not persistent) specifically to avoid the "redeploy
+    silently skips a scheduled fire" risk, no public domain on
+    `control-plane`/`execution`. Documents the UTC-only cron caveat and the
+    App-side `America/New_York` window check that resolves it.
+  - `docs/USER_INTERACTION.md` — the operator interaction model: a routine
+    diagram (no action needed), an exception diagram (alert → investigate →
+    maybe act), and a table mapping every trigger to whether a human sign-off
+    is mandatory (L3/L4 circuit breakers and strategy promotion always are,
+    per Council Protocol §3.11/§4.3 — no automated path resumes trading after
+    a portfolio-level halt).
+- No code changed in this pass — documentation only.
+
 ## 6. Current status / what's next
 
 | Milestone | Status |
