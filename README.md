@@ -12,6 +12,7 @@ This branch (`poc/trading-council`) starts the build from a clean slate —
 **Design docs (source of truth):**
 - **Council Protocol** — architecture, agent knowledge requirements, risk framework, phased roadmap
 - **Ship Order** — reconciled MVP build plan: verified against the live repo, sequenced into 6 milestones, with an explicit scope verdict
+- [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md) — chronological record of why this pivoted and what's actually been built, kept in the repo so it survives independent of any one conversation
 
 ## Structure
 
