@@ -10,7 +10,17 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.35.0",
     "@trading-council/contracts": "*",
-    "node-cron": "^3.0.3"
+    "@trading-council/sizer": "*",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "node-cron": "^3.0.3",
+    "pg": "^8.12.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.0",
+    "@types/pg": "^8.11.0"
   }
 }

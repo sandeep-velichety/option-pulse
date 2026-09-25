@@ -297,6 +297,98 @@ can complete) — config files not yet written, nothing provisioned.
   argumentation in the council becomes valuable. `services/forecaster` and the snapshot
   assembly call are Tier 2 scope; the schema slot is free and the decision is made.
 
+**2026-09-25 — M5: Control-plane implemented (hybrid Jev + Anthropic council).**
+
+Decided to use **Jev** (TypeSafe AI, `@typesafe-ai/sdk ^0.6.0`) as the decision classifier for
+the Risk Officer and Adversary council seats, with Anthropic (`claude-sonnet-4-6`) retained for
+the Allocator (initial thesis + revision pass). Jev is a "System One Model" — not an LLM; it
+takes a structured state + named questions and returns calibrated probability answers
+(`noul`, `choice`, `score`) at 70–500ms latency and ~400x lower cost than frontier LLMs.
+
+**Why Jev for Risk Officer and Adversary, Anthropic for Allocator:**
+- Allocator needs free-form narrative reasoning: catalysts, macro context, qualitative thesis
+  synthesis — this is a generation task that requires a language model.
+- Risk Officer and Adversary return binary verdicts (veto: yes/no) with a category. That is
+  a classification task — exactly Jev's intended use case. No free-form text generation required.
+- `codeVetoGate()` remains a pure function: `approve` iff neither Jev classifier fires veto.
+- When a veto fires, the Allocator gets one revision pass (second Anthropic call) to decide
+  whether to maintain or withdraw the recommendation.
+- On clean sessions (no veto): 1 Anthropic call + 2 Jev calls. On vetoed sessions: 2 Anthropic
+  calls + 2 Jev calls.
+
+Built the full `services/control-plane` service in 10 TypeScript modules. Typecheck clean.
+
+- `src/types.ts` — shared internal types: `AgentRunRecord`, `PendingIntentData`, `SessionResult`.
+- `src/db.ts` — `pg.Pool` wired to `DATABASE_URL`, cp_role credentials.
+- `src/anthropic-client.ts` — Anthropic singleton + `computeAnthropicCost()` (pricing for
+  `claude-sonnet-4-6`).
+- `src/jev.ts` — `TypeSafeClient` singleton; `callJevAdversary()` and `callJevRiskOfficer()`.
+  Both use `noul()` for veto probability, `choice()` for category classification.
+  Token counts from `response.usage.input_tokens` (not estimated).
+- `src/prompts.ts` — Allocator system prompts, RECOMMENDATION_TOOL and REVISION_TOOL JSON
+  Schema definitions for Anthropic tool_use.
+- `src/allocator.ts` — `callAllocator()` (initial thesis, forced tool_use → `StockRecommendation`
+  Zod parse) and `callAllocatorRevision()` (revision pass with Jev critique context).
+- `src/council.ts` — `runCouncil()`: Allocator → parallel Jev classifiers →
+  `codeVetoGate()` → optional Allocator revision → `kellySizer()` → `riskGate()` → assembles
+  `SessionResult` including `PendingIntentData` if approved.
+- `src/journal.ts` — `writeJournal()`: upserts `prompt_versions`; then in one deferred-FK
+  transaction: INSERT all `agent_runs` rows (deferred FK), INSERT `decisions`, INSERT
+  `trade_intents` if approved; `ensureStrategy()` creates the default strategy on first run.
+- `src/scheduler.ts` — `runCycle()`: ET window check (9:30–10:30 AM weekdays), snapshot
+  staleness check (30-min threshold), daily spend cap check (default $2/day), loads portfolio
+  state from DB, calls `runCouncil()` + `writeJournal()`.
+- `src/index.ts` — credential guard (Alpaca keys must be absent), cron
+  `* 9,10 * * 1-5 America/New_York` (minute-level), SIGTERM handler, `RUN_ONCE=true` mode
+  for smoke tests.
+
+**Env vars required:** `DATABASE_URL`, `ANTHROPIC_API_KEY`, `TYPESAFE_API_KEY`,
+`WATCH_SYMBOLS` (comma-separated), `INITIAL_NAV` (default 100000), `DAILY_SPEND_CAP_USD`
+(default 2.00), `ANTHROPIC_MODEL` (default claude-sonnet-4-6).
+
+**2026-09-24 (cont'd) — M4: Execution service implemented.**
+
+Built the full `services/execution` service in 10 TypeScript modules. All typecheck clean;
+`npm run build --workspaces --if-present` passes.
+
+- `src/db.ts` — `pg.Pool` wired to `EXEC_DATABASE_URL`, max 5 connections, idle-client error logging.
+- `src/alpaca.ts` — `Alpaca` client from `ALPACA_KEY`/`ALPACA_SECRET`, paper mode default, exposes
+  the client for all other modules.
+- `src/compute-technicals.ts` — pure functions, no dependencies: `ma`, `atr14`, `realizedVol20d`,
+  `volumeZ20d`, `adv20d`. Handles null-returns for insufficient data throughout.
+- `src/snapshot-writer.ts` — `writeSnapshot()`: fetches 210 daily bars per symbol from Alpaca
+  Data, computes all technicals, fetches asset metadata, optionally pulls VIX from FRED, builds and
+  validates a `MarketSnapshot` via Zod, SHA-256 hashes it, inserts into `market_snapshots`.
+- `src/claim-loop.ts` — `claimAndSubmit()`: `BEGIN … SELECT … FOR UPDATE SKIP LOCKED` (up to 5
+  intents per tick) → mark `claimed` → `COMMIT` → submit each outside the transaction. ROLLBACK on
+  any transaction error; never throws (loop must stay alive).
+- `src/order-submitter.ts` — `submitOrder(row)`: Zod-parses the DB row into `TradeIntent`; refuses
+  any `APP_MODE` other than `paper`; calls `alpaca.trading.orders.bracket()`; writes to `orders`
+  table; updates intent to `submitted`. On Alpaca error: marks intent `failed`, logs, does not throw.
+- `src/fill-writer.ts` — `handleFill(update)`: ignores non-fill events and non-council orders;
+  writes to `fills`; then does an authoritative position + account fetch and writes
+  `positions_snapshot` (with asymmetric notional from open intents) and `nav_history` (peak NAV
+  tracking, drawdown, daily PnL, halt_level=0 placeholder). All on fill, not on poll.
+- `src/trade-stream.ts` — `startTradeStream()`/`stopStream()`: opens `TradingStream` via
+  `alpaca.trading.stream()`, subscribes to trade updates, routes to `handleFill`. Uses
+  `connect()`/`disconnect()` (not the non-existent `close()` — confirmed against SDK types).
+- `src/reconciliation.ts` — `runEodReconciliation()`: authoritative position + NAV snapshot,
+  source='eod_reconcile'; marks expired pending/claimed intents as rejected; logs summary.
+- `src/index.ts` — orchestration: credential guard (Anthropic key must be absent); env-var
+  validation; starts trade stream; sets up 2-second claim-loop interval; cron `*/5 9-16 * * 1-5`
+  ET for snapshot writes (+ immediate boot snapshot); cron `35 16 * * 1-5` ET for EOD
+  reconciliation; SIGTERM handler clears interval, disconnects stream, drains pool.
+
+**Implementation notes:**
+- The Alpaca `Bar` SDK type (`timestamp: Date, open, high, low, close, volume`) differs from the
+  contracts `Bar` type (`t, o, h, l, c, v`) — mapped explicitly in `snapshot-writer.ts`.
+- `TradingStream` is accessed via `streaming.TradingStream` namespace (not a direct named export)
+  — the linter confirmed the import pattern.
+- `TimeFrame.Day` used for the bar timeframe parameter — it's a branded `TimeFrameString`, not a
+  plain string literal, so the named constant is required.
+- `Position.symbol` (not `.ticker`) and `Account.lastEquity` (camelCase) are the correct field
+  names per SDK types.
+
 ## 6. Current status / what's next
 
 | Milestone | Status |
@@ -305,8 +397,8 @@ can complete) — config files not yet written, nothing provisioned.
 | M1 — Foundations | Mostly done: monorepo, contracts, service stubs, credential guards. Remaining: Supabase project provisioning, migration 001, CI workflow content (a skeleton exists at `.github/workflows/ci.yml`) |
 | M2 — Audit spine & safety primitives | Not started — blocked on Supabase |
 | M3 — Deterministic core (sizer, risk gate) | **Done** — `packages/sizer`, 29 tests passing |
-| M4 — Execution service | Not started |
-| M5 — Control plane (specialist, council, scheduler) | Not started |
+| M4 — Execution service | **Done** — 10 modules, typecheck clean, all workspaces build |
+| M5 — Control plane (specialist, council, scheduler) | **Done** — 10 modules, typecheck clean; hybrid Jev + Anthropic council |
 | M6 — Observability & go-live | Not started |
 
 Open decisions still on the table: whether to provision Supabase and Railway
