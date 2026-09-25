@@ -11,6 +11,12 @@
   },
   "dependencies": {
     "@trading-council/contracts": "*",
-    "@alpacahq/alpaca-trade-api": "^4.0.0"
+    "@alpacahq/alpaca-trade-api": "^4.0.0",
+    "pg": "^8.12.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "@types/node-cron": "^3.0.0"
   }
 }
