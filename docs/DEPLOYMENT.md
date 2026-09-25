@@ -24,6 +24,7 @@ graph TB
         CP["control-plane<br/>type: Cron Job<br/>root: services/control-plane<br/>public domain: NONE"]
         EXE["execution<br/>type: Persistent (worker)<br/>root: services/execution<br/>public domain: NONE"]
         OPS["ops-web<br/>type: Persistent (web)<br/>root: services/ops-web<br/>public domain: optional*"]
+        FC["forecaster ②<br/>type: Persistent (worker)<br/>root: services/forecaster (Python)<br/>public domain: NONE"]
     end
 
     Supabase[("Supabase<br/>Postgres, Pro tier<br/>Supavisor session-mode pooling")]
@@ -34,6 +35,7 @@ graph TB
     CP --> Supabase
     CP --> Anthropic
     CP -. "ping on completion" .-> Monitor
+    CP -. "② internal HTTP (fm_forecast)" .-> FC
     EXE --> Supabase
     EXE --> Alpaca
     OPS --> Supabase
@@ -41,7 +43,13 @@ graph TB
     style CP fill:#1e7f70,color:#fff
     style EXE fill:#1e7f70,color:#fff
     style OPS fill:#4a5560,color:#fff
+    style FC fill:#7a5c00,color:#fff
 ```
+
+② `forecaster` is **Tier 2 scope** — not present in the initial 30-day paper run.
+`control-plane` calls it during snapshot assembly when `FORECASTER_URL` is set;
+if the env var is absent the call is skipped and `fm_forecast` is left null.
+Specialists must handle `fm_forecast == null` (see `docs/ARCHITECTURE.md`).
 
 \* `ops-web` can run as a hosted Railway service or on-demand from a local
 machine for the 30-day MVP window — zero cost, zero public surface either
@@ -54,9 +62,10 @@ either direction — see [`docs/USER_INTERACTION.md`](USER_INTERACTION.md).
 
 | Service | Railway type | Root directory | Start command | Env vars |
 |---|---|---|---|---|
-| `control-plane` | Cron Job | `services/control-plane` | `npm start` | `ANTHROPIC_API_KEY`, `DATABASE_URL` (cp_role) |
+| `control-plane` | Cron Job | `services/control-plane` | `npm start` | `ANTHROPIC_API_KEY`, `DATABASE_URL` (cp_role), `FORECASTER_URL` (optional, Tier 2) |
 | `execution` | Persistent | `services/execution` | `npm start` | `ALPACA_KEY`, `ALPACA_SECRET`, `ALPACA_PAPER=true`, `EXEC_DATABASE_URL` (exec_role) |
 | `ops-web` | Persistent | `services/ops-web` | `npm start` | `OPS_DATABASE_URL` (ops_role) |
+| `forecaster` ② | Persistent | `services/forecaster` | `python -m forecaster` | `FORECASTER_PORT` (internal only, no public domain) |
 
 All three read `APP_MODE=paper` — reserved now so a later `live` cutover is a
 config change, not a redeploy of different code (see `.env.example`).

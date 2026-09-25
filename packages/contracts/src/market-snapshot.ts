@@ -9,6 +9,13 @@ const Bar = z.object({
   v: z.number(),
 });
 
+const FmForecast = z.object({
+  point: z.number(),
+  q10: z.number(),
+  q90: z.number(),
+  horizon_days: z.number().int().positive(),
+});
+
 const SymbolSnapshot = z.object({
   last: z.number(),
   prev_close: z.number(),
@@ -24,6 +31,9 @@ const SymbolSnapshot = z.object({
   tradable: z.boolean(),
   shortable: z.boolean(),
   halted: z.boolean(),
+  // Populated by services/forecaster (TimesFM sidecar) when running.
+  // Null when the forecaster is not available; specialists must handle both cases.
+  fm_forecast: FmForecast.nullable().optional(),
 });
 
 export const MarketSnapshot = z.object({

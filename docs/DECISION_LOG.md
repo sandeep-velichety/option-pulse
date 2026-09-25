@@ -268,6 +268,35 @@ can complete) — config files not yet written, nothing provisioned.
   `docs/ARCHITECTURE.md`; `packages/db/README.md` updated so migration 001
   doesn't miss it.
 
+**2026-09-24 — M3: Kelly sizer + risk gate implemented; TimesFM architecture decided.**
+
+- Added `packages/sizer` — pure TypeScript module, no external runtime dependencies.
+  - `kellySizer(recommendation, convictionAdjustment, nav, asymmetricNotionalOpen) → SizerOutput`
+    — fractional Kelly (f* = edge / variance_period), then quarter-Kelly for `core` bets capped
+    at 5% NAV, flat 1% NAV for `asymmetric` bets (5% aggregate cap); five `cap_applied` paths
+    (`none`, `kelly_cap`, `floor`, `asym_flat_cap`, `asym_aggregate_cap`).
+  - `riskGate(intent, snapshot, portfolio, config?) → GateResult` — nine named checks
+    (`market_open`, `symbol_tradable`, `circuit_breaker_clear`, `daily_loss_limit`,
+    `portfolio_drawdown`, `no_duplicate_intent`, `notional_positive`, `notional_hard_cap`,
+    plus `asym_aggregate_ok` for asymmetric positions); returns ALL results not just first
+    failure; validates final output through the `GateResult` Zod schema before returning.
+  - 29 unit tests covering all cap paths, edge cases (negative edge, zero variance,
+    conviction clamping, aggregate exhaustion), and all gate failure modes including
+    multi-failure reporting; `vitest run` passes clean.
+- Added optional `fm_forecast` field to `SymbolSnapshot` in `packages/contracts/src/market-snapshot.ts`
+  — `{ point, q10, q90, horizon_days } | null | undefined`. Null when the forecaster service
+  is not running; specialists must handle both cases. Backwards-compatible (optional field).
+- **TimesFM architecture decision.** The timeseries foundation model (Google TimesFM,
+  ~200M params) will run as a separate `services/forecaster` Python sidecar on Railway.
+  TypeScript cannot run PyTorch natively; the CPU-only MLX variant is Apple Silicon only and
+  not deployable on Railway's Linux workers. The forecaster accepts a price series over
+  internal HTTP (no public domain), returns FM quantile forecasts, and `control-plane` calls
+  it during snapshot assembly. **No new council agent:** the FM output is structured numeric
+  data fed as a field in `MarketSnapshot`, not a council vote — existing specialists incorporate
+  it in their prompts. Revisit a dedicated Quant Specialist seat in Tier 2 if independent FM
+  argumentation in the council becomes valuable. `services/forecaster` and the snapshot
+  assembly call are Tier 2 scope; the schema slot is free and the decision is made.
+
 ## 6. Current status / what's next
 
 | Milestone | Status |
@@ -275,7 +304,7 @@ can complete) — config files not yet written, nothing provisioned.
 | M0 — Key rotation, delete old Railway deployment | **Not yet done** — do this before anything touches real capital |
 | M1 — Foundations | Mostly done: monorepo, contracts, service stubs, credential guards. Remaining: Supabase project provisioning, migration 001, CI workflow content (a skeleton exists at `.github/workflows/ci.yml`) |
 | M2 — Audit spine & safety primitives | Not started — blocked on Supabase |
-| M3 — Deterministic core (sizer, risk gate) | Not started — no external dependency, can start any time |
+| M3 — Deterministic core (sizer, risk gate) | **Done** — `packages/sizer`, 29 tests passing |
 | M4 — Execution service | Not started |
 | M5 — Control plane (specialist, council, scheduler) | Not started |
 | M6 — Observability & go-live | Not started |

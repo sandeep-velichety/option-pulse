@@ -214,17 +214,106 @@ Postgres view is sufficient at MVP call volume. Given one equities sleeve at
 one cycle/day, it's sufficient — revisit if/when call volume from Tier 1
 (crypto + prediction sleeves) makes the view too coarse.
 
+## packages/sizer — Kelly sizer and risk gate
+
+`packages/sizer` implements M3 as two pure, unit-tested TypeScript functions
+with no external runtime dependencies.
+
+**`kellySizer(recommendation, convictionAdjustment, nav, asymmetricNotionalOpen)`**
+Returns `SizerOutput`. Formula:
+- `edge = (est_edge_bps / 10 000) × adjustedConviction`
+  where `adjustedConviction = clamp(conviction + convictionAdjustment, 0, 1)`.
+- `variance = est_vol² × (horizon_days / 252)` — annualized vol² scaled to the holding period.
+- `kelly_f_raw = edge / variance` (null if variance = 0).
+- **Core bets** (`bet_class = "core"`): quarter-Kelly, capped at 5% NAV.
+  `cap_applied` is one of `"none"`, `"kelly_cap"`, `"floor"`.
+- **Asymmetric bets** (`bet_class = "asymmetric"`): flat 1% NAV per position,
+  5% NAV aggregate cap — Kelly fraction is computed for the audit log but
+  irrelevant to sizing. `cap_applied` is `"asym_flat_cap"` or `"asym_aggregate_cap"`.
+- `notional_usd = kelly_f_capped × nav`.
+
+**`riskGate(intent, snapshot, portfolio, config?)`**
+Returns `GateResult` (Zod-validated). Nine named checks in order:
+
+| Check name | Blocks on |
+|---|---|
+| `market_open` | `snapshot.session !== "open"` |
+| `symbol_tradable` | symbol missing, `tradable=false`, or `halted=true` |
+| `circuit_breaker_clear` | `haltLevel >= config.blockOnHaltLevel` (default L2) |
+| `daily_loss_limit` | daily P&L < −2% NAV (configurable) |
+| `portfolio_drawdown` | drawdown from peak ≥ 10% (configurable) |
+| `no_duplicate_intent` | ticker already has a pending/claimed intent |
+| `notional_positive` | `notional_usd ≤ 0` — catches floored sizer output |
+| `notional_hard_cap` | `notional_usd > 5% NAV` — last-line defense regardless of bet class |
+| `asym_aggregate_ok` | (asymmetric only) projected aggregate > 5% NAV |
+
+All checks always run; `reason` lists every failed check name, not just the
+first. L1 halt is advisory — it logs but does not block new entries.
+
+The gate is the final check before `control-plane` writes to `trade_intents`.
+The sequence is: `kellySizer` → assemble full `TradeIntent` (including `qty`
+from `notional_usd / last_price`) → `riskGate` → DB write.
+
+## TimesFM forecaster (Tier 2 — architecture decided, not yet built)
+
+**Decision:** The timeseries foundation model runs as a Python sidecar
+(`services/forecaster`), not inside `control-plane`. TypeScript cannot run
+PyTorch natively; the MLX variant is Apple Silicon only and can't deploy on
+Railway's Linux workers. The forecaster accepts a price series over internal
+HTTP (no public domain), returns quantile forecasts, and `control-plane` calls
+it during snapshot assembly.
+
+**No new council agent.** FM output is structured numeric data, not an opinion.
+It populates `fm_forecast` in `SymbolSnapshot` (already in contracts as a
+nullable optional field); existing specialist agents reference it in their
+prompts when present. Revisit a dedicated Quant Specialist council seat in
+Tier 2 if independent FM argumentation becomes valuable.
+
+`MarketSnapshot.symbols[ticker].fm_forecast` shape:
+```typescript
+{ point: number; q10: number; q90: number; horizon_days: number } | null | undefined
+```
+
+Specialists must handle `fm_forecast == null` — the field is absent when the
+forecaster is not running (e.g., during the initial 30-day paper-trading run).
+
+**Concrete revisit trigger:** once `services/forecaster` is implemented, update
+`control-plane`'s snapshot assembly step and add prompt sections in each
+specialist that interpret the FM signal relative to their own thesis.
+
 ## What's live vs. planned
 
 | Layer | Status |
 |---|---|
-| Contracts (`packages/contracts`) | Built — all 5 schemas, range validation verified |
+| Contracts (`packages/contracts`) | Built — all 5 schemas + `fm_forecast` optional field; range validation verified |
+| `packages/sizer` — Kelly sizer, risk gate | **Built** — 29 unit tests passing (see above) |
 | DB schema, roles, RLS-equivalent grants | Designed (Ship Order §1), not yet migrated — needs a Supabase project |
 | LLM token/prompt observability (`agent_runs` extension, `prompt_versions`, cost view) | Designed (this doc), not yet migrated — same blocker |
 | Service scaffolds + credential guards | Built and verified (`services/*`) |
-| Specialist agent, council, sizer, risk gate | Not yet implemented (M3/M5) |
+| Specialist agent, council orchestration (`control-plane` M5) | Not yet implemented — no external blocker |
+| `services/execution` — Alpaca order placement, fill events, reconciliation | Not yet implemented — no external blocker at stub level |
+| `services/forecaster` — TimesFM Python sidecar | Tier 2 — architecture decided (see above), not yet implemented |
 | Stock sleeve (Alpaca) | Tier 0 — in progress |
 | Crypto sleeve, Kalshi prediction sleeve, Polymarket reference feed | Tier 1 — not started |
 | Macro data pipeline (GDELT, Federal Register, FRED, NWS/NHC) | Tier 2 — not started |
 | Adaptive strategy loop, post-mortem classification, Strategy Observatory UI | Tier 2/3 — not started |
 | Full circuit-breaker suite (L1–L6), flatten-all kill switch | Tier 3 — not started; MVP carries a minimal deadman switch + spend cap only |
+
+## What to build next (no account access required)
+
+These milestones have no dependency on Supabase or Railway being provisioned:
+
+1. **M4 stub — `services/execution`**: claim loop (`SELECT … FOR UPDATE SKIP LOCKED`
+   on `trade_intents`), Alpaca bracket-order call, fill-event WebSocket handler,
+   `nav_history` / `positions_snapshot` writer. The Alpaca client can be built and
+   typed against the paper API spec; actual calls stay behind `APP_MODE=paper` guard.
+
+2. **M5 stub — `control-plane` orchestration**: wire the specialist agent call
+   (structured output → `StockRecommendation` Zod parse → `kellySizer` →
+   `CouncilVerdict` → `riskGate` → write `trade_intents`). The Anthropic call can
+   be written and typechecked without a live key; actual calls are gated by
+   credential isolation guard already in place.
+
+3. **M2 — migration 001**: write the SQL (tables, grants, `REVOKE`, `prompt_versions`,
+   extended `agent_runs`). The SQL can be written and reviewed now;
+   `node-pg-migrate` only needs a live `DATABASE_URL` to execute it.

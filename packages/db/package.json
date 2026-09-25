@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "migrate": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down"
+    "migrate": "node-pg-migrate up --migrations-dir migrations",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations",
+    "migrate:status": "node-pg-migrate status --migrations-dir migrations"
   },
   "dependencies": {
     "pg": "^8.12.0"
