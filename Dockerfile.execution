@@ -1,0 +1,14 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy entire monorepo (dockerignore excludes node_modules and dist)
+COPY . .
+
+# Install all workspace deps and build dependency chain
+RUN npm ci && \
+    npm run build --workspace @trading-council/contracts && \
+    npm run build --workspace @trading-council/execution
+
+ENV NODE_ENV=production
+
+CMD ["node", "services/execution/dist/index.js"]

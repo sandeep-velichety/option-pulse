@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.control-plane"
+
+[deploy]
+# Fires at 14:30 UTC — that is 9:30 AM EST (winter) and 10:30 AM EDT (summer).
+# Both are within the isInTradingWindow() check [9:30–10:30 AM ET].
+# The process exits after one cycle (RUN_ONCE=true in Railway env vars).
+cronSchedule = "30 14 * * 1-5"
+restartPolicyType = "never"
