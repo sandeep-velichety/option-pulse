@@ -38,6 +38,29 @@ export interface PendingIntentData {
   sessionRunId: string;
 }
 
+export interface AdversaryResult {
+  recommend_veto: boolean;
+  veto_confidence: number;
+  flaw_category: 'overfit' | 'regime_change' | 'thesis_weak' | 'data_snooping' | 'none';
+  flaw_confidence: number;
+  severity_score: number;
+  rationale: string;
+  latency_ms: number;
+  input_tokens: number;
+  cost_usd: number;
+}
+
+export interface RiskOfficerResult {
+  recommend_veto: boolean;
+  veto_confidence: number;
+  breach_type: 'position_size' | 'drawdown' | 'volatility' | 'correlation' | 'none';
+  breach_confidence: number;
+  rationale: string;
+  latency_ms: number;
+  input_tokens: number;
+  cost_usd: number;
+}
+
 export interface SessionResult {
   sessionRunId: string;
   decisionId: string;

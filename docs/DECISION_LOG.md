@@ -342,9 +342,44 @@ Built the full `services/control-plane` service in 10 TypeScript modules. Typech
   `* 9,10 * * 1-5 America/New_York` (minute-level), SIGTERM handler, `RUN_ONCE=true` mode
   for smoke tests.
 
-**Env vars required:** `DATABASE_URL`, `ANTHROPIC_API_KEY`, `TYPESAFE_API_KEY`,
+**Env vars required:** `DATABASE_URL`, `ANTHROPIC_API_KEY`,
 `WATCH_SYMBOLS` (comma-separated), `INITIAL_NAV` (default 100000), `DAILY_SPEND_CAP_USD`
 (default 2.00), `ANTHROPIC_MODEL` (default claude-sonnet-4-6).
+`TYPESAFE_API_KEY` is optional (only consumed when `USE_JEV=true`; see 2026-09-26 entry).
+
+**2026-09-26 — USE_JEV feature flag; LLM-based classifier fallback; Jev stripped from deployment docs.**
+
+TypeSafe AI paused new signups, making `TYPESAFE_API_KEY` unavailable to deploy.
+
+**Decision:** add `USE_JEV` env-var feature flag (default `false`) with a clean fallback path so the
+system deploys and runs without any Jev credentials. The flag is not a temporary hack — Jev's System
+One classifier is still the intended production path when signups reopen; the flag selects between
+two implementations of the same interface.
+
+**Changes:**
+- `src/types.ts` — added shared `AdversaryResult` and `RiskOfficerResult` interfaces (previously Jev-specific).
+- `src/jev.ts` — converted top-level credential check to **lazy init** (`getJev()` helper). Module
+  loads cleanly when `USE_JEV=false`; TYPESAFE_API_KEY is only read if `getJev()` is actually called.
+- `src/prompts.ts` — added `ADVERSARY_SYSTEM_PROMPT`, `ADVERSARY_TOOL`, `RISK_OFFICER_SYSTEM_PROMPT`,
+  `RISK_OFFICER_TOOL` for the LLM fallback path.
+- `src/llm-classifiers.ts` — new module: `callLlmAdversary()` and `callLlmRiskOfficer()` using
+  Anthropic `tool_use` forced-tool-call mode. Returns the same `AdversaryResult`/`RiskOfficerResult`
+  shapes as the Jev path. `veto_confidence` is `0.9`/`0.1` (LLM gives binary, not calibrated prob).
+- `src/classifiers.ts` — new routing module: reads `USE_JEV`, dynamically imports either `jev.ts` or
+  `llm-classifiers.ts` so the unused SDK is never loaded. Exports `callAdversary()`, `callRiskOfficer()`,
+  `classifierBackend()`.
+- `src/council.ts` — replaced `buildJevAgentRunRecord` (hard-coded `JEV_MODEL`) with
+  `buildClassifierAgentRunRecord` (uses `classifierBackend()` for the `model` field and `role` tag).
+  Calls `callAdversary()`/`callRiskOfficer()` from `classifiers.ts`. Typecheck clean.
+- `docs/DEPLOYMENT.md` — removed `TYPESAFE_API_KEY` from architecture diagram, pre-flight checklist,
+  and control-plane env vars table. Left a commented `USE_JEV=true` hint for when it reopens.
+- `.env.example` — removed `TYPESAFE_API_KEY` from required section; added `USE_JEV=false` with a
+  comment explaining when to flip it.
+
+**Cost on default path (USE_JEV=false):**
+- Clean session (no veto): 3 Anthropic calls (Allocator + LLM Adversary + LLM Risk Officer).
+- Vetoed session: 4 Anthropic calls (+ Allocator revision).
+- When `USE_JEV=true`: 1 Anthropic call (Allocator) + 2 Jev calls; vetoed: 2 + 2.
 
 **2026-09-24 (cont'd) — M4: Execution service implemented.**
 
@@ -398,7 +433,7 @@ Built the full `services/execution` service in 10 TypeScript modules. All typech
 | M2 — Audit spine & safety primitives | Not started — blocked on Supabase |
 | M3 — Deterministic core (sizer, risk gate) | **Done** — `packages/sizer`, 29 tests passing |
 | M4 — Execution service | **Done** — 10 modules, typecheck clean, all workspaces build |
-| M5 — Control plane (specialist, council, scheduler) | **Done** — 10 modules, typecheck clean; hybrid Jev + Anthropic council |
+| M5 — Control plane (specialist, council, scheduler) | **Done** — 10 modules, typecheck clean; hybrid Jev + Anthropic council; USE_JEV flag added (default false, LLM fallback active) |
 | M6 — Observability & go-live | Not started |
 
 Open decisions still on the table: whether to provision Supabase and Railway

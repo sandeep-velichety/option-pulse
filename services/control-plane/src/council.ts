@@ -3,8 +3,8 @@ import { riskGate, kellySizer } from '@trading-council/sizer';
 import type { PortfolioState } from '@trading-council/sizer';
 import type { MarketSnapshot, TradeIntent } from '@trading-council/contracts';
 import { callAllocator, callAllocatorRevision } from './allocator.js';
-import { callJevAdversary, callJevRiskOfficer, JEV_MODEL } from './jev.js';
-import type { JevAdversaryResult, JevRiskOfficerResult } from './jev.js';
+import { callAdversary, callRiskOfficer, classifierBackend } from './classifiers.js';
+import type { AdversaryResult, RiskOfficerResult } from './types.js';
 import { AGENT_VERSION } from './prompts.js';
 import type { AgentRunRecord, SessionResult, PendingIntentData } from './types.js';
 
@@ -78,23 +78,23 @@ function buildTradeIntentForGate(
   };
 }
 
-function buildJevAgentRunRecord(
+function buildClassifierAgentRunRecord(
   runId: string,
   decisionId: string,
   role: 'risk_officer' | 'adversary',
-  result: JevAdversaryResult | JevRiskOfficerResult,
+  result: AdversaryResult | RiskOfficerResult,
   stateJson: string,
 ): AgentRunRecord {
+  const backend = classifierBackend();
   const inputHash = crypto.createHash('sha256').update(stateJson).digest('hex');
-  const promptVersionHash = inputHash;
   return {
     runId,
     decisionId,
-    role: `${role}_jev`,
+    role: `${role}_${backend}`,
     agentVersion: AGENT_VERSION,
-    model: JEV_MODEL,
+    model: backend,
     inputHash,
-    promptVersionHash,
+    promptVersionHash: inputHash,
     promptRole: role,
     systemPrompt: stateJson,
     messages: [{ role: 'user', content: stateJson }],
@@ -153,8 +153,8 @@ export async function runCouncil(
     portfolio.currentNav > 0 ? portfolio.dailyPnlUsd / portfolio.currentNav : 0;
 
   const [adversaryResult, riskOfficerResult] = await Promise.all([
-    callJevAdversary(recommendation, snapshot),
-    callJevRiskOfficer(
+    callAdversary(recommendation, snapshot),
+    callRiskOfficer(
       recommendation,
       preSizing,
       snapshot,
@@ -167,7 +167,7 @@ export async function runCouncil(
   const adversaryRunId = crypto.randomUUID();
   const riskOfficerRunId = crypto.randomUUID();
   agentRunRecords.push(
-    buildJevAgentRunRecord(
+    buildClassifierAgentRunRecord(
       adversaryRunId,
       decisionId,
       'adversary',
@@ -176,7 +176,7 @@ export async function runCouncil(
     ),
   );
   agentRunRecords.push(
-    buildJevAgentRunRecord(
+    buildClassifierAgentRunRecord(
       riskOfficerRunId,
       decisionId,
       'risk_officer',

@@ -1,43 +1,31 @@
 import { TypeSafeClient, noul, choice, score } from '@typesafe-ai/sdk';
 import type { StockRecommendation, MarketSnapshot } from '@trading-council/contracts';
 import type { SizerOutput } from '@trading-council/sizer';
+import type { AdversaryResult, RiskOfficerResult } from './types.js';
 
-if (!process.env['TYPESAFE_API_KEY']) {
-  throw new Error('[control-plane] TYPESAFE_API_KEY is required');
-}
+// Re-export for backward compatibility
+export type { AdversaryResult as JevAdversaryResult, RiskOfficerResult as JevRiskOfficerResult };
 
-const jev = new TypeSafeClient();
 export const JEV_MODEL = 'jev-latest';
-
 const JEV_COST_PER_INPUT_TOKEN = 0.042 / 1_000_000;
 
-export interface JevAdversaryResult {
-  recommend_veto: boolean;
-  veto_confidence: number;
-  flaw_category: 'overfit' | 'regime_change' | 'thesis_weak' | 'data_snooping' | 'none';
-  flaw_confidence: number;
-  severity_score: number;
-  rationale: string;
-  latency_ms: number;
-  input_tokens: number;
-  cost_usd: number;
-}
-
-export interface JevRiskOfficerResult {
-  recommend_veto: boolean;
-  veto_confidence: number;
-  breach_type: 'position_size' | 'drawdown' | 'volatility' | 'correlation' | 'none';
-  breach_confidence: number;
-  rationale: string;
-  latency_ms: number;
-  input_tokens: number;
-  cost_usd: number;
+// Lazy init — only throws when called, not at module load.
+// This allows USE_JEV=false to boot without TYPESAFE_API_KEY.
+let _jev: TypeSafeClient | null = null;
+function getJev(): TypeSafeClient {
+  if (!_jev) {
+    if (!process.env['TYPESAFE_API_KEY']) {
+      throw new Error('[control-plane] TYPESAFE_API_KEY is required when USE_JEV=true');
+    }
+    _jev = new TypeSafeClient();
+  }
+  return _jev;
 }
 
 export async function callJevAdversary(
   recommendation: StockRecommendation,
   snapshot: MarketSnapshot,
-): Promise<JevAdversaryResult> {
+): Promise<AdversaryResult> {
   const sym = snapshot.symbols[recommendation.ticker];
   const state = {
     ticker: recommendation.ticker,
@@ -65,7 +53,7 @@ export async function callJevAdversary(
   };
 
   const start = Date.now();
-  const response = await jev.systemOne({
+  const response = await getJev().systemOne({
     state,
     questions: {
       veto: noul('The investment thesis contains a fatal flaw that should block this trade'),
@@ -93,7 +81,7 @@ export async function callJevAdversary(
   return {
     recommend_veto: vetoNoul > 0.5,
     veto_confidence: vetoNoul,
-    flaw_category: (flawAns?.choice ?? 'none') as JevAdversaryResult['flaw_category'],
+    flaw_category: (flawAns?.choice ?? 'none') as AdversaryResult['flaw_category'],
     flaw_confidence: flawAns?.confidence ?? 0,
     severity_score: severityScore,
     rationale: `flaw=${flawAns?.choice ?? 'none'} conf=${((flawAns?.confidence ?? 0) * 100).toFixed(0)}% severity=${severityScore.toFixed(2)} veto_prob=${(vetoNoul * 100).toFixed(0)}%`,
@@ -110,7 +98,7 @@ export async function callJevRiskOfficer(
   portfolioNav: number,
   portfolioDrawdown: number,
   dailyPnlFraction: number,
-): Promise<JevRiskOfficerResult> {
+): Promise<RiskOfficerResult> {
   const state = {
     ticker: recommendation.ticker,
     direction: recommendation.direction,
@@ -125,14 +113,11 @@ export async function callJevRiskOfficer(
       drawdown_fraction: portfolioDrawdown,
       daily_pnl_fraction: dailyPnlFraction,
     },
-    market_regime: {
-      vix: snapshot.regime.vix,
-      session: snapshot.session,
-    },
+    market_regime: { vix: snapshot.regime.vix, session: snapshot.session },
   };
 
   const start = Date.now();
-  const response = await jev.systemOne({
+  const response = await getJev().systemOne({
     state,
     questions: {
       veto: noul('This trade intent breaches one or more risk rules or portfolio constraints'),
@@ -154,7 +139,7 @@ export async function callJevRiskOfficer(
   return {
     recommend_veto: vetoNoul > 0.5,
     veto_confidence: vetoNoul,
-    breach_type: (breachAns?.choice ?? 'none') as JevRiskOfficerResult['breach_type'],
+    breach_type: (breachAns?.choice ?? 'none') as RiskOfficerResult['breach_type'],
     breach_confidence: breachAns?.confidence ?? 0,
     rationale: `breach=${breachAns?.choice ?? 'none'} conf=${((breachAns?.confidence ?? 0) * 100).toFixed(0)}% veto_prob=${(vetoNoul * 100).toFixed(0)}%`,
     latency_ms,

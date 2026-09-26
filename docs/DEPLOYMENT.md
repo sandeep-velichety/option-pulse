@@ -11,7 +11,6 @@ Both read/write a shared **Supabase** Postgres database through separate DB role
 Railway project: trading-council
 ├── control-plane  (Cron Job, fires 14:30 UTC Mon–Fri)
 │   ├── ANTHROPIC_API_KEY
-│   ├── TYPESAFE_API_KEY
 │   └── DATABASE_URL  (cp_role, session-mode Supavisor)
 └── execution      (Persistent Worker, always running)
     ├── ALPACA_KEY / ALPACA_SECRET
@@ -22,8 +21,8 @@ Supabase Postgres (Pro tier)
     Each role has its own Supavisor session-mode connection string.
 
 Credential isolation invariant (hard — do not relax):
-- control-plane: Anthropic + Jev + cp_role DB only. Never Alpaca.
-- execution: Alpaca + exec_role DB only. Never Anthropic or Jev.
+- control-plane: Anthropic + cp_role DB only. Never Alpaca.
+- execution: Alpaca + exec_role DB only. Never Anthropic.
 ```
 
 ---
@@ -34,8 +33,7 @@ Before touching Railway or Supabase you need four credentials:
 
 | Credential | Where to get it |
 |---|---|
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API keys |
-| `TYPESAFE_API_KEY` | typesafe.ai → dashboard → API keys |
+| `ANTHROPIC_API_KEY` | platform.claude.com → Settings → API keys |
 | `ALPACA_KEY` + `ALPACA_SECRET` | alpaca.markets → Paper Trading → API keys (rotate the old one first — M0) |
 
 Keep these in a password manager. Do **not** put them in any file in the repo.
@@ -129,7 +127,6 @@ Set these in Railway dashboard (each service has its own Variables tab):
 ### control-plane
 ```
 ANTHROPIC_API_KEY=sk-ant-...
-TYPESAFE_API_KEY=...
 DATABASE_URL=postgres://cp_user:PASSWORD@...
 WATCH_SYMBOLS=AAPL,MSFT,NVDA,TSLA,SPY
 INITIAL_NAV=100000
@@ -137,6 +134,7 @@ DAILY_SPEND_CAP_USD=2.00
 RUN_ONCE=true
 NODE_ENV=production
 APP_MODE=paper
+# USE_JEV=true   # optional: set when TypeSafe AI signups reopen (requires TYPESAFE_API_KEY)
 ```
 
 `INITIAL_NAV` should match your Alpaca paper account's starting equity (default is $100,000).

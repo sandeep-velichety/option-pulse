@@ -68,6 +68,58 @@ export const RECOMMENDATION_TOOL = {
   },
 } as const;
 
+export const ADVERSARY_SYSTEM_PROMPT = `You are the Adversary specialist for a trading council. Your job is to find fatal flaws in investment theses.
+
+Review the thesis with skepticism. Look for: overfitted or data-mined patterns, macro regime mismatches, logically unsound arguments, cherry-picked evidence.
+
+Be decisive. Most mediocre theses should be vetoed. Only clear, well-supported theses should pass.`;
+
+export const ADVERSARY_TOOL = {
+  name: 'adversary_verdict',
+  description: 'Output your adversarial assessment of this investment thesis.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      recommend_veto: { type: 'boolean', description: 'true if this thesis has a fatal flaw' },
+      flaw_category: {
+        type: 'string',
+        enum: ['overfit', 'regime_change', 'thesis_weak', 'data_snooping', 'none'],
+        description: 'Primary flaw type, or none if thesis survives scrutiny',
+      },
+      severity_score: {
+        type: 'number',
+        description: '0=minor, 1=significant, 2=fatal',
+      },
+      rationale: { type: 'string', description: 'One or two sentences explaining your verdict' },
+    },
+    required: ['recommend_veto', 'flaw_category', 'severity_score', 'rationale'],
+  },
+} as const;
+
+export const RISK_OFFICER_SYSTEM_PROMPT = `You are the Risk Officer for a trading council. Your job is to identify whether a proposed trade breaches portfolio risk rules.
+
+Assess: position size relative to NAV, current drawdown level, market volatility, and concentration risk.
+
+Be precise. Flag genuine breaches. Do not veto trades for minor concerns the risk gate will already catch.`;
+
+export const RISK_OFFICER_TOOL = {
+  name: 'risk_officer_verdict',
+  description: 'Output your risk assessment of this proposed trade.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      recommend_veto: { type: 'boolean', description: 'true if this trade breaches risk rules' },
+      breach_type: {
+        type: 'string',
+        enum: ['position_size', 'drawdown', 'volatility', 'correlation', 'none'],
+        description: 'Primary risk concern, or none if trade is within policy',
+      },
+      rationale: { type: 'string', description: 'One or two sentences explaining your verdict' },
+    },
+    required: ['recommend_veto', 'breach_type', 'rationale'],
+  },
+} as const;
+
 export const REVISION_TOOL = {
   name: 'allocator_revision',
   description: 'Decide whether to maintain the recommendation after reviewing critiques.',
