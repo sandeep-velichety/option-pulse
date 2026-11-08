@@ -1,0 +1,12 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy entire monorepo (dockerignore excludes node_modules and dist)
+COPY . .
+
+# ops-web has no workspace-package dependencies
+RUN npm ci && npm run build --workspace @trading-council/ops-web
+
+ENV NODE_ENV=production
+
+CMD ["node", "services/ops-web/dist/index.js"]

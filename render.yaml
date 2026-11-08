@@ -104,3 +104,24 @@ services:
         value: production
       - key: APP_MODE
         value: paper
+
+  # Read-only dashboard: proposed/abstained decisions and reasons, NAV, positions, orders.
+  # Holds ONLY ops_user (SELECT) — no Anthropic/Alpaca credentials, so a public URL is
+  # permitted by the invariant, but it is still gated by HTTP Basic auth (OPS_PASSWORD).
+  - type: web
+    name: ops-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile.ops-web
+    dockerContext: .
+    region: virginia
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: OPS_DATABASE_URL
+        sync: false
+      - key: OPS_PASSWORD
+        sync: false
+      - key: OPS_USER
+        value: ops
+      - key: NODE_ENV
+        value: production

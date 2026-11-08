@@ -6,6 +6,9 @@ if (process.env['ANTHROPIC_API_KEY'] || process.env['ALPACA_KEY'] || process.env
 
 import express from 'express';
 import pg from 'pg';
+import crypto from 'node:crypto';
+import { renderDecisionsPage, VERDICTS } from './decisions-page.js';
+import type { DecisionRow } from './decisions-page.js';
 
 const { Pool } = pg;
 
@@ -16,6 +19,26 @@ const pool = new Pool({ connectionString: url, max: 3 });
 
 const app = express();
 const PORT = process.env['PORT'] ?? '3000';
+
+// This dashboard exposes trading activity, so it must not be open to the internet.
+// HTTP Basic auth (constant-time compare). Required in production; /health stays open for probes.
+const OPS_USER = process.env['OPS_USER'] ?? 'ops';
+const OPS_PASSWORD = process.env['OPS_PASSWORD'];
+if (!OPS_PASSWORD && process.env['NODE_ENV'] === 'production') {
+  throw new Error('[ops-web] OPS_PASSWORD is required in production');
+}
+function safeEq(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+app.use((req, res, next) => {
+  if (req.path === '/health' || !OPS_PASSWORD) return next();
+  const m = /^Basic (.+)$/.exec(req.headers.authorization ?? '');
+  const [u = '', ...rest] = m ? Buffer.from(m[1]!, 'base64').toString().split(':') : [];
+  if (m && safeEq(u, OPS_USER) && safeEq(rest.join(':'), OPS_PASSWORD)) return next();
+  res.set('WWW-Authenticate', 'Basic realm="ops"').status(401).send('Authentication required');
+});
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -28,11 +51,52 @@ app.get('/api/ops/nav', async (_req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
+app.get('/decisions', async (req, res) => {
+  try {
+    const verdictQ = String(req.query['verdict'] ?? 'all');
+    const assetQ = String(req.query['asset'] ?? 'all');
+    const limitQ = parseInt(String(req.query['limit'] ?? '100'), 10);
+    const verdict = (VERDICTS as readonly string[]).includes(verdictQ) ? verdictQ : 'all';
+    const asset = ['stock', 'crypto'].includes(assetQ) ? assetQ : 'all';
+    const limit = Number.isFinite(limitQ) ? Math.min(Math.max(limitQ, 1), 500) : 100;
+
+    const params: unknown[] = [];
+    const where: string[] = [];
+    if (verdict !== 'all') { params.push(verdict); where.push(`d.verdict = $${params.length}`); }
+    if (asset === 'crypto') where.push(`d.ticker LIKE '%/%'`);
+    if (asset === 'stock') where.push(`d.ticker NOT LIKE '%/%'`);
+    params.push(limit);
+
+    const [rows, counts] = await Promise.all([
+      pool.query<DecisionRow>(
+        `SELECT d.decision_id, d.ticker, d.verdict, d.verdict_reason, d.gate_result, d.created_at,
+                (SELECT json_agg(json_build_object('role', a.role, 'out', a.parsed_output) ORDER BY a.created_at)
+                   FROM agent_runs a WHERE a.decision_id = d.decision_id) AS runs,
+                (SELECT json_build_object('status', ti.status, 'side', ti.side, 'notional', ti.notional_usd)
+                   FROM trade_intents ti WHERE ti.decision_id = d.decision_id LIMIT 1) AS intent
+           FROM decisions d
+          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+          ORDER BY d.created_at DESC
+          LIMIT $${params.length}`,
+        params,
+      ),
+      pool.query<{ verdict: string; n: number }>(
+        `SELECT verdict, COUNT(*)::int AS n FROM decisions
+          WHERE created_at > now() - interval '7 days' GROUP BY verdict ORDER BY n DESC`,
+      ),
+    ]);
+    res.send(renderDecisionsPage(rows.rows, counts.rows, { verdict, asset, limit }));
+  } catch (err) {
+    console.error('[ops-web] /decisions error', err);
+    res.status(500).send('Decisions error');
+  }
+});
+
 app.get('/api/ops/intents', async (_req, res) => {
   try {
     const r = await pool.query(
       `SELECT ti.ticker, ti.side, ti.notional_usd, ti.status, ti.bet_class, ti.created_at, ti.expires_at,
-              d.verdict_enum, d.verdict_reason
+              d.verdict AS verdict_enum, d.verdict_reason
        FROM trade_intents ti
        LEFT JOIN decisions d ON d.decision_id = ti.decision_id
        ORDER BY ti.created_at DESC LIMIT 10`
@@ -73,7 +137,7 @@ app.get('/', async (_req, res) => {
     const [navR, intentsR, ordersR, posR] = await Promise.all([
       pool.query('SELECT nav_usd, peak_nav_usd, drawdown_fraction, daily_pnl_usd, halt_level, as_of FROM nav_history ORDER BY as_of DESC LIMIT 1'),
       pool.query(`SELECT ti.ticker, ti.side, ti.notional_usd, ti.status, ti.bet_class, ti.created_at,
-                         d.verdict_enum, d.verdict_reason
+                         d.verdict AS verdict_enum, d.verdict_reason
                   FROM trade_intents ti LEFT JOIN decisions d ON d.decision_id = ti.decision_id
                   ORDER BY ti.created_at DESC LIMIT 10`),
       pool.query('SELECT ticker, side, qty, alpaca_status, alpaca_order_id, submitted_at FROM orders ORDER BY created_at DESC LIMIT 10'),
@@ -87,7 +151,7 @@ app.get('/', async (_req, res) => {
     const ddPct = nav ? (parseFloat(nav.drawdown_fraction) * 100).toFixed(2) : '—';
     const pnl = nav ? parseFloat(nav.daily_pnl_usd) : 0;
     const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
-    const positions = pos ? JSON.parse(pos.positions as string) : [];
+    const positions = pos ? (typeof pos.positions === 'string' ? JSON.parse(pos.positions) : (pos.positions ?? [])) : [];
 
     const statusBadge = (s: string) => {
       const colors: Record<string, string> = { submitted: '#3b82f6', filled: '#22c55e', failed: '#ef4444', rejected: '#6b7280', pending: '#f59e0b', claimed: '#a78bfa' };
@@ -152,6 +216,7 @@ app.get('/', async (_req, res) => {
 </head>
 <body>
 <h1>Trading Council</h1>
+<p style="margin-bottom:12px"><a href="/decisions" style="color:#93c5fd">→ Proposed &amp; abstained decisions, with reasons</a></p>
 <p class="subtitle">Paper trading dashboard — auto-refreshes every 60s <span class="refresh">Last loaded: ${new Date().toLocaleString()}</span></p>
 
 <div class="cards">

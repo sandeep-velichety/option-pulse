@@ -438,6 +438,19 @@ with post-mortems/lessons (migration `002`), `packages/alerts`, and ops-web chan
   orders with **no stop-loss/take-profit**; exits depend on the council/post-mortem path.
 - Migration `002_post_mortems` must be applied in Supabase before deploy.
 
+**2026-11-08 (cont'd) — ops-web `/decisions`: see proposed trades, abstains, and why.**
+
+`services/ops-web` gains `/decisions` (`decisions-page.ts`): every council run from the `decisions`
+table (not just approved `trade_intents`, which hid all abstains), with outcome filter, stock/crypto
+filter, 7-day counts, and expandable detail — Allocator thesis/conviction/edge, Adversary and Risk
+Officer verdicts with rationale, any Allocator revision, per-check risk-gate results, and the
+resulting intent status. For abstains the Allocator's own thesis is shown as the reason (the stored
+`verdict_reason` is a generic string). Fixed two latent bugs in the existing dashboard: it selected a
+nonexistent `d.verdict_enum` column and called `JSON.parse` on an already-parsed JSONB value.
+Added HTTP Basic auth (`OPS_PASSWORD`, required when `NODE_ENV=production`; `/health` open) because
+the page exposes trading activity. ops-web holds only `ops_user`, so a public URL does not violate
+the credential invariant. Added `Dockerfile.ops-web` and an `ops-web` web service in `render.yaml`.
+
 **2026-09-24 (cont'd) — M4: Execution service implemented.**
 
 Built the full `services/execution` service in 10 TypeScript modules. All typecheck clean;
