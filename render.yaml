@@ -1,0 +1,68 @@
+# Render Blueprint — trading-council
+#
+# Neither service exposes a port or accepts inbound traffic (cron + worker types
+# cannot receive requests). control-plane and execution talk only via Postgres.
+#
+# Secrets use `sync: false`: they are NOT stored in this file; Render prompts for
+# them in the dashboard on first Blueprint apply. Never commit secret values.
+#
+# Credential isolation (hard invariant — do not relax):
+#   control-plane: ANTHROPIC_API_KEY + DATABASE_URL (cp_user). Never ALPACA_*.
+#   execution:     ALPACA_KEY/SECRET + EXEC_DATABASE_URL (exec_user). Never ANTHROPIC_*.
+
+services:
+  # Daily council run. 14:30 UTC = 9:30 ET (EST) / 10:30 ET (EDT); both are inside
+  # the isInTradingWindow() check (9:30–10:30 ET) in scheduler.ts.
+  - type: cron
+    name: control-plane
+    runtime: docker
+    dockerfilePath: ./Dockerfile.control-plane
+    dockerContext: .
+    schedule: "30 14 * * 1-5"
+    region: virginia # match your Supabase region (us-east-1)
+    plan: starter
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: WATCH_SYMBOLS
+        value: AAPL,MSFT,NVDA,TSLA,SPY
+      - key: INITIAL_NAV
+        value: "100000"
+      - key: DAILY_SPEND_CAP_USD
+        value: "2.00"
+      - key: USE_JEV
+        value: "false"
+      - key: RUN_ONCE
+        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: APP_MODE
+        value: paper
+
+  # Always-on: Alpaca trade stream, 2s intent claim loop, snapshots, EOD reconcile.
+  - type: worker
+    name: execution
+    runtime: docker
+    dockerfilePath: ./Dockerfile.execution
+    dockerContext: .
+    region: virginia
+    plan: starter
+    envVars:
+      - key: ALPACA_KEY
+        sync: false
+      - key: ALPACA_SECRET
+        sync: false
+      - key: EXEC_DATABASE_URL
+        sync: false
+      - key: ALPACA_PAPER
+        value: "true"
+      - key: WATCH_SYMBOLS
+        value: AAPL,MSFT,NVDA,TSLA,SPY
+      - key: NODE_ENV
+        value: production
+      - key: APP_MODE
+        value: paper

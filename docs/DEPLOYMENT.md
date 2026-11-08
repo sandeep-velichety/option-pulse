@@ -1,222 +1,134 @@
-# Deployment Guide — 30-day paper trading run
+# Deployment Guide — 30-day paper trading run (Render)
 
-Two services deploy to Railway: **execution** (long-running worker) and **control-plane** (daily cron job).
-Both read/write a shared **Supabase** Postgres database through separate DB roles.
+Two services deploy to Render from [`render.yaml`](../render.yaml): **execution** (background
+worker, always on) and **control-plane** (cron job, 14:30 UTC Mon–Fri). Both use a shared
+**Supabase** Postgres through separate DB roles.
+
+> Hosting moved from Railway to Render after Railway's October 2026 breach exposed customer
+> environment variables. See DECISION_LOG.md (2026-11-08). Never reuse any secret that was ever
+> stored in Railway.
 
 ---
 
 ## Architecture
 
 ```
-Railway project: trading-council
-├── control-plane  (Cron Job, fires 14:30 UTC Mon–Fri)
+Render (Blueprint: render.yaml)
+├── control-plane  (cron, 14:30 UTC Mon–Fri)      no port, no inbound
 │   ├── ANTHROPIC_API_KEY
-│   └── DATABASE_URL  (cp_role, session-mode Supavisor)
-└── execution      (Persistent Worker, always running)
+│   └── DATABASE_URL       (cp_user)
+└── execution      (background worker, always on) no port, no inbound
     ├── ALPACA_KEY / ALPACA_SECRET
-    └── EXEC_DATABASE_URL  (exec_role, session-mode Supavisor)
+    └── EXEC_DATABASE_URL  (exec_user)
 
-Supabase Postgres (Pro tier)
-└── Three roles: cp_role · exec_role · ops_role
-    Each role has its own Supavisor session-mode connection string.
+Supabase Postgres (Pro): roles cp_role · exec_role · ops_role
 
 Credential isolation invariant (hard — do not relax):
 - control-plane: Anthropic + cp_role DB only. Never Alpaca.
 - execution: Alpaca + exec_role DB only. Never Anthropic.
 ```
 
+Render cron and worker service types cannot receive inbound requests, which enforces the
+"no public inbound traffic to a credentialed process" invariant at the platform level.
+
 ---
 
-## Pre-flight checklist
-
-Before touching Railway or Supabase you need four credentials:
+## Pre-flight: fresh credentials only
 
 | Credential | Where to get it |
 |---|---|
-| `ANTHROPIC_API_KEY` | platform.claude.com → Settings → API keys |
-| `ALPACA_KEY` + `ALPACA_SECRET` | alpaca.markets → Paper Trading → API keys (rotate the old one first — M0) |
+| `ANTHROPIC_API_KEY` | platform.claude.com → Settings → API keys (new key; revoke any old one; set a low spend limit) |
+| `ALPACA_KEY` + `ALPACA_SECRET` | alpaca.markets → Paper Trading → regenerate keys |
+| `DATABASE_URL`, `EXEC_DATABASE_URL` | Supabase role URLs (Step 1). Rotate `cp_user`/`exec_user` passwords if ever put in Railway |
 
-Keep these in a password manager. Do **not** put them in any file in the repo.
-
----
-
-## Step 1 — Supabase (15 minutes)
-
-1. Create a new project at supabase.com (**Pro tier** — needed for Supavisor pooler and connection limits).
-2. Wait for the project to finish provisioning (~2 minutes).
-3. Go to **Project Settings → Database → Connection string**.
-4. Copy the **Session mode** connection strings for each role.  
-   The base URL looks like: `postgres://postgres.xxxx:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres`
-
-   You need **three** connection strings — one for each DB role. To get role-scoped URLs:
-   - Supabase creates one super-user URL by default. Run the migration first (next step), then
-     Supabase creates `cp_role`, `exec_role`, `ops_role` as Postgres roles.
-   - After migration: in Supabase SQL editor, create login users that inherit the roles:
-     ```sql
-     -- Run once after migration 001 completes
-     CREATE USER cp_user  WITH LOGIN PASSWORD 'choose-a-password' IN ROLE cp_role;
-     CREATE USER exec_user WITH LOGIN PASSWORD 'choose-a-password' IN ROLE exec_role;
-     CREATE USER ops_user  WITH LOGIN PASSWORD 'choose-a-password' IN ROLE ops_role;
-     GRANT USAGE ON SCHEMA public TO cp_user, exec_user, ops_user;
-     ```
-   - Then build URLs:
-     - `DATABASE_URL`     = `postgres://cp_user:PASSWORD@<host>:5432/postgres`
-     - `EXEC_DATABASE_URL` = `postgres://exec_user:PASSWORD@<host>:5432/postgres`
-     - `OPS_DATABASE_URL`  = `postgres://ops_user:PASSWORD@<host>:5432/postgres`
-   - **Port 5432** = Supavisor session mode (required for long-lived workers). Not 6543 (transaction mode).
+Keep them in a password manager. Never put them in a file in the repo.
 
 ---
 
-## Step 2 — Run the migration (5 minutes)
+## Step 1 — Supabase (skip if already provisioned)
 
-Run migration 001 against Supabase using the **super-user** URL (not a role-scoped URL):
-
-```bash
-# In the repo root — use the postgres super-user URL from Supabase dashboard
-DATABASE_URL="postgres://postgres.xxxx:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
-  npm run migrate --workspace @trading-council/db
-```
-
-Expected output: `Migrated up: 001_initial_schema`
-
-Verify in Supabase Table Editor: you should see 10 tables including `decisions`, `agent_runs`, `trade_intents`.
-
-After migration, run the SQL above to create the role-scoped login users.
+1. Pro project at supabase.com; wait for provisioning.
+2. Run the migrations with the super-user URL (`npm run migrate --workspace @trading-council/db`).
+3. Create login users (or rotate their passwords if they exist):
+   ```sql
+   CREATE USER cp_user   WITH LOGIN PASSWORD '<new>' IN ROLE cp_role;
+   CREATE USER exec_user WITH LOGIN PASSWORD '<new>' IN ROLE exec_role;
+   GRANT USAGE ON SCHEMA public TO cp_user, exec_user;
+   -- rotation: ALTER USER cp_user PASSWORD '<new>';
+   ```
+4. Use **session-mode** URLs, port **5432** (not 6543):
+   `postgres://cp_user:PASSWORD@<host>:5432/postgres` (and `exec_user` for execution).
 
 ---
 
-## Step 3 — Railway project (20 minutes)
+## Step 2 — Deploy on Render
 
-### 3a. Create the project
+1. Push this branch to GitHub (Render deploys from the repo).
+2. Render dashboard → **New → Blueprint** → connect `sandeep-velichety/option-pulse`, branch
+   `poc/trading-council`, Blueprint path `render.yaml`.
+3. Render lists both services and prompts for every `sync: false` secret:
+   - control-plane: `ANTHROPIC_API_KEY`, `DATABASE_URL`
+   - execution: `ALPACA_KEY`, `ALPACA_SECRET`, `EXEC_DATABASE_URL`
+4. Apply. First Docker build takes ~3–5 minutes per service.
 
-```bash
-railway login      # opens browser — log in with your Railway account
-railway init       # creates a new project; name it "trading-council"
-```
+Do not set `ALPACA_*` on control-plane or `ANTHROPIC_*` on execution — the runtime guards at the
+top of each `services/*/src/index.ts` throw at boot.
 
-### 3b. Add the control-plane service
-
-In Railway dashboard → your project → **New Service** → **GitHub Repo** → select `option-pulse`:
-
-| Setting | Value |
-|---|---|
-| **Root Directory** | *(leave blank — repo root)* |
-| **Dockerfile Path** | `Dockerfile.control-plane` |
-| **Service Config Path** | `services/control-plane/railway.toml` |
-
-Railway will detect `cronSchedule` in the toml and automatically set the service type to **Cron Job**.
-
-### 3c. Add the execution service
-
-**New Service** → same GitHub repo:
-
-| Setting | Value |
-|---|---|
-| **Root Directory** | *(leave blank — repo root)* |
-| **Dockerfile Path** | `Dockerfile.execution` |
-| **Service Config Path** | `services/execution/railway.toml` |
-
-This becomes a **Persistent Worker** (always running).
+`INITIAL_NAV` should match your Alpaca paper account's starting equity (default $100,000).
+`FRED_API_KEY` is optional (execution): unset skips VIX fetching.
 
 ---
 
-## Step 4 — Environment variables
+## Step 3 — Smoke test
 
-Set these in Railway dashboard (each service has its own Variables tab):
-
-### control-plane
-```
-ANTHROPIC_API_KEY=sk-ant-...
-DATABASE_URL=postgres://cp_user:PASSWORD@...
-WATCH_SYMBOLS=AAPL,MSFT,NVDA,TSLA,SPY
-INITIAL_NAV=100000
-DAILY_SPEND_CAP_USD=2.00
-RUN_ONCE=true
-NODE_ENV=production
-APP_MODE=paper
-# USE_JEV=true   # optional: set when TypeSafe AI signups reopen (requires TYPESAFE_API_KEY)
-```
-
-`INITIAL_NAV` should match your Alpaca paper account's starting equity (default is $100,000).
-
-### execution
-```
-ALPACA_KEY=PK...
-ALPACA_SECRET=...
-ALPACA_PAPER=true
-EXEC_DATABASE_URL=postgres://exec_user:PASSWORD@...
-WATCH_SYMBOLS=AAPL,MSFT,NVDA,TSLA,SPY
-NODE_ENV=production
-APP_MODE=paper
-```
-
-`FRED_API_KEY` is optional — leave it unset to skip VIX fetching (VIX will default to 0 and `vix_stale_days=999`).
-
----
-
-## Step 5 — Deploy
-
-```bash
-git push  # Railway auto-deploys on push to poc/trading-council
-```
-
-Or trigger manually in Railway dashboard → **Deploy**.
-
-Watch Railway's build logs — first build takes ~3–5 minutes (Docker layer caching kicks in on subsequent deploys).
-
----
-
-## Step 6 — Smoke test
-
-After both services show **Active** in Railway:
-
-**Check execution service logs** (Railway → execution → Logs):
+**execution → Logs:**
 ```
 [execution] started
 [execution] snapshot written: 5/5 symbols, session=closed
 ```
-A `market_snapshots` row should appear in Supabase Table Editor within 30 seconds.
+A `market_snapshots` row should appear in Supabase within a minute.
 
-**Check control-plane** next morning at 14:30 UTC (9:30 AM EST / 10:30 AM EDT):
+**control-plane:** Render → control-plane → **Trigger Run** (works any time; outside
+9:30–10:30 ET it logs `outside trading window, skipping cycle`, which still proves boot,
+credentials, and DB). During the window expect:
 ```
-[control-plane] boot
 [control-plane] cycle start: session=xxx nav=100000.00
 [control-plane] journal written: decision=... verdict=... ticker=...
 ```
-A `decisions` row and `agent_runs` rows appear in Supabase.
-
-**Check Alpaca paper dashboard** (app.alpaca.markets → Paper Trading → Orders):  
-If the council approved a trade, a bracket order appears.
+A `decisions` row and `agent_runs` rows appear in Supabase. If approved, a bracket order shows
+at app.alpaca.markets → Paper Trading → Orders.
 
 ---
 
 ## Cron schedule notes
 
-`control-plane` fires at **14:30 UTC, Mon–Fri**:
-- Winter (EST = UTC-5): 14:30 UTC = **9:30 AM ET** — within the 9:30–10:30 ET window ✓
-- Summer (EDT = UTC-4): 14:30 UTC = **10:30 AM ET** — within the 9:30–10:30 ET window ✓
-
-The `isInTradingWindow()` check in `runCycle()` is a secondary guard. The cron entry itself is correct for both DST states with a single UTC time.
+`30 14 * * 1-5` (UTC): EST → 9:30 ET, EDT → 10:30 ET; both inside the 9:30–10:30 ET window.
+`isInTradingWindow()` in `runCycle()` is a secondary guard. A trade needs a snapshot younger than
+30 minutes, which `execution` writes every 5 minutes during market hours.
 
 ---
 
-## Monitoring the 30-day run
+## Monitoring
 
 | What | Where |
 |---|---|
-| Live logs | Railway → service → Logs |
-| Decisions table | Supabase Table Editor → `decisions` |
-| Daily cost | Supabase SQL: `SELECT * FROM llm_cost_by_role_day ORDER BY day DESC` |
-| Open positions | Supabase: `SELECT * FROM positions_snapshot ORDER BY as_of DESC LIMIT 1` |
-| Trade history | Supabase: `SELECT * FROM fills ORDER BY filled_at DESC` |
+| Live logs | Render → service → Logs |
+| Decisions | Supabase → `decisions` |
+| Daily cost | `SELECT * FROM llm_cost_by_role_day ORDER BY day DESC` |
+| Open positions | `SELECT * FROM positions_snapshot ORDER BY as_of DESC LIMIT 1` |
+| Trade history | `SELECT * FROM fills ORDER BY filled_at DESC` |
 | Alpaca orders | app.alpaca.markets → Paper Trading |
 
-**Daily spend cap:** `DAILY_SPEND_CAP_USD=2.00` → control-plane skips the LLM calls if today's `agent_runs.cost_usd` sum exceeds $2. Adjust in Railway env vars if needed.
+**Daily spend cap:** `DAILY_SPEND_CAP_USD=2.00` — control-plane skips LLM calls once today's
+`agent_runs.cost_usd` exceeds it.
+
+**"No trades" checklist:** snapshot fresh? → control-plane run happened inside the window? →
+`decisions` rows present (abstain/veto vs. never ran)? → `trade_intents` rows `submitted`? →
+execution logs for Alpaca errors.
 
 ---
 
 ## Stopping the run
 
-To stop cleanly: in Railway, **pause** or **delete** the control-plane cron job. The execution service can keep running (it only places orders when trade_intents appear).
-
-To stop everything: Railway → project → **Delete Project** (or pause both services).
+Suspend the control-plane cron in Render to stop new decisions; execution can keep running (it
+only orders when `trade_intents` appear). To stop everything, suspend or delete both services.

@@ -11,7 +11,7 @@ directly on GitHub and doesn't depend on the web artifacts staying reachable.
 graph TB
     Operator["Operator (browser)"]
 
-    subgraph Railway["Railway project"]
+    subgraph Render["Render (render.yaml)"]
         CP["control-plane<br/>(Cron Job)<br/>holds: ANTHROPIC_API_KEY, cp_role DB"]
         EXE["execution<br/>(persistent)<br/>holds: ALPACA_KEY/SECRET, exec_role DB"]
         OPS["ops-web<br/>(persistent)<br/>holds: ops_role DB (SELECT only)"]
@@ -81,7 +81,7 @@ guarantee, not just a code convention.
 
 ```mermaid
 sequenceDiagram
-    participant Sched as Scheduler<br/>(Railway Cron)
+    participant Sched as Scheduler<br/>(Render Cron)
     participant CP as control-plane
     participant LLM as Anthropic API
     participant DB as Supabase
