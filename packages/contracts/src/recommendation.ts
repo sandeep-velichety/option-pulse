@@ -9,7 +9,10 @@ import { z } from "zod";
 const Evidence = z.object({
   claim: z.string(),
   source: z.string(), // must reference a MarketSnapshot path, e.g. "symbols.AAPL.iv_rank"
-  value: z.union([z.string(), z.number()]),
+  value: z.preprocess(
+    (v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v),
+    z.union([z.string(), z.number()]),
+  ),
 });
 
 export const BetClass = z.enum(["core", "asymmetric"]);

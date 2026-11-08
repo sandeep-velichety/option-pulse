@@ -33,11 +33,47 @@ services:
       - key: INITIAL_NAV
         value: "100000"
       - key: DAILY_SPEND_CAP_USD
-        value: "2.00"
+        value: "4.00" # shared with control-plane-crypto (cap is summed across all agent_runs)
       - key: USE_JEV
         value: "false"
       - key: RUN_ONCE
         value: "true"
+      - key: RUN_MODE
+        value: stock
+      - key: NODE_ENV
+        value: production
+      - key: APP_MODE
+        value: paper
+
+  # Crypto council run: every 2 hours, 24/7 (no trading window). Same image and
+  # credentials as control-plane; only RUN_MODE differs.
+  - type: cron
+    name: control-plane-crypto
+    runtime: docker
+    dockerfilePath: ./Dockerfile.control-plane
+    dockerContext: .
+    schedule: "0 */2 * * *"
+    region: virginia
+    plan: starter
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: WATCH_SYMBOLS
+        value: AAPL,MSFT,NVDA,TSLA,SPY
+      - key: INITIAL_NAV
+        value: "100000"
+      - key: DAILY_SPEND_CAP_USD
+        value: "4.00"
+      - key: USE_JEV
+        value: "false"
+      - key: RUN_ONCE
+        value: "true"
+      - key: RUN_MODE
+        value: crypto
       - key: NODE_ENV
         value: production
       - key: APP_MODE
@@ -62,6 +98,8 @@ services:
         value: "true"
       - key: WATCH_SYMBOLS
         value: AAPL,MSFT,NVDA,TSLA,SPY
+      - key: WATCH_CRYPTO_SYMBOLS
+        value: BTC/USD,ETH/USD
       - key: NODE_ENV
         value: production
       - key: APP_MODE

@@ -31,7 +31,7 @@ for (const varName of requiredVars) {
 import cron from 'node-cron';
 import { pool } from './db.js';
 import { claimAndSubmit } from './claim-loop.js';
-import { writeSnapshot } from './snapshot-writer.js';
+import { writeSnapshot, writeCryptoSnapshot } from './snapshot-writer.js';
 import { startTradeStream, stopStream } from './trade-stream.js';
 import { runEodReconciliation } from './reconciliation.js';
 
@@ -59,6 +59,18 @@ cron.schedule(
 // Run snapshot once on boot
 writeSnapshot().catch((err) => {
   console.error('[execution] snapshot-writer boot error', err);
+});
+
+// Crypto snapshot: every 5 minutes, 24/7 (only runs if WATCH_CRYPTO_SYMBOLS is set)
+cron.schedule('*/5 * * * *', () => {
+  writeCryptoSnapshot().catch((err) => {
+    console.error('[execution] crypto snapshot-writer cron error', err);
+  });
+});
+
+// Run crypto snapshot once on boot
+writeCryptoSnapshot().catch((err) => {
+  console.error('[execution] crypto snapshot-writer boot error', err);
 });
 
 // EOD reconciliation: 4:35 PM ET on weekdays

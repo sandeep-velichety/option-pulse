@@ -1,5 +1,6 @@
 import { alpaca } from './alpaca.js';
 import { pool } from './db.js';
+import { sendAlert, fmtUsd } from '@trading-council/alerts';
 
 export async function runEodReconciliation(): Promise<void> {
   console.log('[execution] reconciliation: starting EOD reconciliation');
@@ -83,6 +84,11 @@ export async function runEodReconciliation(): Promise<void> {
         `drawdown=${(drawdown * 100).toFixed(2)}% ` +
         `expired_intents_rejected=${expiredResult.rowCount ?? 0}`,
     );
+
+    await sendAlert(
+      `EOD Summary — NAV $${navUsd.toFixed(2)}`,
+      `Daily P&L: ${fmtUsd(dailyPnl)}\nDrawdown from peak: ${(drawdown * 100).toFixed(2)}%\nOpen positions: ${positions.length}\nExpired intents rejected: ${expiredResult.rowCount ?? 0}\nMarket value: $${totalMarketValue.toFixed(2)}`,
+    ).catch(() => {});
   } catch (err) {
     console.error('[execution] reconciliation: error', err);
   }

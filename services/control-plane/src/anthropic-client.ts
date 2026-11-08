@@ -3,7 +3,11 @@ import Anthropic from '@anthropic-ai/sdk';
 const key = process.env['ANTHROPIC_API_KEY'];
 if (!key) throw new Error('[control-plane] ANTHROPIC_API_KEY is required');
 
-export const anthropic = new Anthropic({ apiKey: key });
+const workspaceId = process.env['ANTHROPIC_WORKSPACE_ID'];
+export const anthropic = new Anthropic({
+  apiKey: key,
+  ...(workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {}),
+});
 export const ANTHROPIC_MODEL = process.env['ANTHROPIC_MODEL'] ?? 'claude-sonnet-4-6';
 
 const PRICE = {

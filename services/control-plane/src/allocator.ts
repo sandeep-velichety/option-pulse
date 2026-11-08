@@ -10,6 +10,7 @@ import {
 import {
   AGENT_VERSION,
   ALLOCATOR_SYSTEM_PROMPT,
+  CRYPTO_ALLOCATOR_SYSTEM_PROMPT,
   ALLOCATOR_REVISION_SYSTEM_PROMPT,
   RECOMMENDATION_TOOL,
   REVISION_TOOL,
@@ -51,6 +52,8 @@ function snapshotForPrompt(snapshot: MarketSnapshot): Record<string, unknown> {
   };
 }
 
+type Lesson = { ticker: string; classification: string; exit_reason: string; realized_pnl_usd: string; created_at: Date };
+
 export interface AllocatorCallResult {
   recommendation: StockRecommendation;
   agentRunRecord: AgentRunRecord;
@@ -66,18 +69,33 @@ export interface RevisionCallResult {
 export async function callAllocator(
   snapshot: MarketSnapshot,
   decisionId: string,
+  assetClass: 'stock' | 'crypto' = 'stock',
+  recentLessons: Lesson[] = [],
 ): Promise<AllocatorCallResult> {
+  const systemPrompt = assetClass === 'crypto' ? CRYPTO_ALLOCATOR_SYSTEM_PROMPT : ALLOCATOR_SYSTEM_PROMPT;
   const promptData = snapshotForPrompt(snapshot);
-  const userContent = `Analyze this market snapshot and recommend one trade:\n\n${JSON.stringify(promptData, null, 2)}`;
+
+  let userMessage = '';
+  if (recentLessons.length > 0) {
+    const lessonsText = recentLessons.map(l =>
+      `- ${l.ticker} [${l.classification}] exit=${l.exit_reason} pnl=${parseFloat(l.realized_pnl_usd) >= 0 ? '+' : ''}${parseFloat(l.realized_pnl_usd).toFixed(2)} (${new Date(l.created_at).toDateString()})`
+    ).join('\n');
+    userMessage = `## Recent Trade Post-Mortems (your recent history — use to calibrate conviction)\n${lessonsText}\n\n## Market Snapshot\n`;
+  } else {
+    userMessage = '## Market Snapshot\n';
+  }
+  userMessage += JSON.stringify(promptData, null, 2);
+
+  const userContent = `Analyze this market snapshot and recommend one trade:\n\n${userMessage}`;
   const inputHash = sha256(userContent);
-  const promptVersionHash = sha256(ALLOCATOR_SYSTEM_PROMPT);
+  const promptVersionHash = sha256(systemPrompt);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }];
 
   const start = Date.now();
   const response = await anthropic.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: 2048,
-    system: ALLOCATOR_SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: [RECOMMENDATION_TOOL],
     tool_choice: { type: 'tool', name: 'stock_recommendation' },
     messages,
@@ -116,7 +134,7 @@ export async function callAllocator(
     inputHash,
     promptVersionHash,
     promptRole: 'allocator',
-    systemPrompt: ALLOCATOR_SYSTEM_PROMPT,
+    systemPrompt: systemPrompt,
     messages,
     rawOutput: JSON.stringify(toolUse.input),
     parsedOutput: recommendation,

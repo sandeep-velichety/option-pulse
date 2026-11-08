@@ -16,6 +16,20 @@ const FmForecast = z.object({
   horizon_days: z.number().int().positive(),
 });
 
+const CryptoHeadline = z.object({
+  title: z.string(),
+  source: z.string(),
+  published_at: z.string(),
+  sentiment: z.enum(['positive', 'negative', 'neutral']).nullable(),
+});
+
+const MacroContext = z.object({
+  fear_greed_index: z.number().int().min(0).max(100).nullable(),
+  fear_greed_label: z.string().nullable(),
+  fear_greed_as_of: z.string().datetime().nullable(),
+  crypto_headlines: z.array(CryptoHeadline).optional(),
+});
+
 const SymbolSnapshot = z.object({
   last: z.number(),
   prev_close: z.number(),
@@ -52,6 +66,8 @@ export const MarketSnapshot = z.object({
     missing: z.array(z.string()),
     stale: z.array(z.string()),
   }),
+  macro_context: MacroContext.optional(),
 });
 
 export type MarketSnapshot = z.infer<typeof MarketSnapshot>;
+export type MacroContext = z.infer<typeof MacroContext>;

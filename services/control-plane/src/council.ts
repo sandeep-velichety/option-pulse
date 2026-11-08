@@ -8,8 +8,18 @@ import type { AdversaryResult, RiskOfficerResult } from './types.js';
 import { AGENT_VERSION } from './prompts.js';
 import type { AgentRunRecord, SessionResult, PendingIntentData } from './types.js';
 
+export type Lesson = {
+  ticker: string;
+  classification: string;
+  exit_reason: string;
+  realized_pnl_usd: string;
+  created_at: Date;
+};
+
 export const STRATEGY_ID = 'default-stock-v1';
 export const SLEEVE_ID = 'default-sleeve';
+export const CRYPTO_STRATEGY_ID = 'default-crypto-v1';
+export const CRYPTO_SLEEVE_ID = 'crypto-sleeve';
 
 function codeVetoGate(adversaryVeto: boolean, riskOfficerVeto: boolean): 'approve' | 'reject' {
   return adversaryVeto || riskOfficerVeto ? 'reject' : 'approve';
@@ -45,6 +55,8 @@ function buildTradeIntentForGate(
   sizing: ReturnType<typeof kellySizer>,
   decisionId: string,
   sessionRunId: string,
+  strategyId: string,
+  sleeveId: string,
 ): TradeIntent {
   const side = recommendation.direction === 'long' ? 'buy' : 'sell';
   const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
@@ -63,8 +75,8 @@ function buildTradeIntentForGate(
     time_in_force: 'day',
     bracket: { take_profit_price: 1, stop_loss_price: 1 },
     bet_class: recommendation.bet_class,
-    sleeve_id: SLEEVE_ID,
-    strategy_id: STRATEGY_ID,
+    sleeve_id: sleeveId,
+    strategy_id: strategyId,
     sizing: {
       nav_at_decision: sizing.nav_at_decision,
       edge: sizing.edge,
@@ -116,13 +128,19 @@ export async function runCouncil(
   portfolio: PortfolioState,
   sessionRunId: string,
   decisionId: string,
+  assetClass: 'stock' | 'crypto' = 'stock',
+  recentLessons: Lesson[] = [],
 ): Promise<SessionResult> {
+  const strategyId = assetClass === 'crypto' ? CRYPTO_STRATEGY_ID : STRATEGY_ID;
+  const sleeveId = assetClass === 'crypto' ? CRYPTO_SLEEVE_ID : SLEEVE_ID;
   const agentRunRecords: AgentRunRecord[] = [];
 
   // Step 1: Allocator (Anthropic) — thesis generation
   const { recommendation, agentRunRecord: allocatorRun } = await callAllocator(
     snapshot,
     decisionId,
+    assetClass,
+    recentLessons,
   );
   agentRunRecords.push(allocatorRun);
 
@@ -251,6 +269,8 @@ export async function runCouncil(
     finalSizing,
     decisionId,
     sessionRunId,
+    strategyId,
+    sleeveId,
   );
   const gateResult = riskGate(intentForGate, snapshot, portfolio);
 
@@ -299,8 +319,8 @@ export async function runCouncil(
     last_price: last,
     bracket,
     bet_class: recommendation.bet_class,
-    sleeve_id: SLEEVE_ID,
-    strategy_id: STRATEGY_ID,
+    sleeve_id: sleeveId,
+    strategy_id: strategyId,
     sizing: finalSizing,
     sessionRunId,
   };

@@ -1,4 +1,5 @@
 import { TradeIntent } from '@trading-council/contracts';
+import { sendAlert } from '@trading-council/alerts';
 import { alpaca } from './alpaca.js';
 import { pool } from './db.js';
 
@@ -38,16 +39,26 @@ export async function submitOrder(
   }
 
   try {
-    const order = await alpaca.trading.orders.bracket({
-      symbol: intent.ticker,
-      side: intent.side,
-      qty: Number(intent.qty),
-      ...(intent.order_type === 'limit' && intent.limit_price != null
-        ? { limitPrice: Number(intent.limit_price) }
-        : {}),
-      takeProfit: { limitPrice: intent.bracket.take_profit_price },
-      stopLoss: { stopPrice: intent.bracket.stop_loss_price },
-    });
+    // Crypto symbols contain '/' (e.g. BTC/USD). Alpaca paper does not support
+    // bracket orders for crypto — submit a plain market order instead.
+    const isCrypto = intent.ticker.includes('/');
+    const order = isCrypto
+      ? await alpaca.trading.orders.market({
+          symbol: intent.ticker,
+          side: intent.side,
+          qty: Number(intent.qty),
+          timeInForce: 'gtc', // 'day' is invalid for crypto on Alpaca
+        })
+      : await alpaca.trading.orders.bracket({
+          symbol: intent.ticker,
+          side: intent.side,
+          qty: Number(intent.qty),
+          ...(intent.order_type === 'limit' && intent.limit_price != null
+            ? { limitPrice: Number(intent.limit_price) }
+            : {}),
+          takeProfit: { limitPrice: intent.bracket.take_profit_price },
+          stopLoss: { stopPrice: intent.bracket.stop_loss_price },
+        });
 
     await pool.query(
       `INSERT INTO orders
@@ -84,6 +95,10 @@ export async function submitOrder(
         `UPDATE trade_intents SET status = 'failed' WHERE intent_id = $1`,
         [intent.intent_id],
       );
+      await sendAlert(
+        `Order failed: ${intent.ticker} ${intent.side}`,
+        `Intent ${intent.intent_id} failed.\nTicker: ${intent.ticker}\nSide: ${intent.side}\nNotional: $${intent.notional_usd}\nError: ${err instanceof Error ? err.message : String(err)}`,
+      ).catch(() => {});
     } catch (dbErr) {
       console.error(
         `[execution] order-submitter: failed to mark intent ${intent.intent_id} as failed`,

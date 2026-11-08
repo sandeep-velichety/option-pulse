@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { STRATEGY_ID, SLEEVE_ID } from './council.js';
+import { STRATEGY_ID, SLEEVE_ID, CRYPTO_STRATEGY_ID, CRYPTO_SLEEVE_ID } from './council.js';
 import type { SessionResult } from './types.js';
 
 function etTodayISO(): string {
@@ -29,6 +29,15 @@ export async function ensureStrategy(): Promise<void> {
      VALUES ($1, $2, 'stock', 1, 'active')
      ON CONFLICT (strategy_id) DO NOTHING`,
     [STRATEGY_ID, SLEEVE_ID],
+  );
+}
+
+export async function ensureCryptoStrategy(): Promise<void> {
+  await pool.query(
+    `INSERT INTO strategies (strategy_id, sleeve_id, asset_class, version, status)
+     VALUES ($1, $2, 'crypto', 1, 'active')
+     ON CONFLICT (strategy_id) DO NOTHING`,
+    [CRYPTO_STRATEGY_ID, CRYPTO_SLEEVE_ID],
   );
 }
 
@@ -94,13 +103,14 @@ export async function writeJournal(
     }
 
     // 2. Insert decisions (creates the row the deferred FK will resolve against)
+    const decisionStrategyId = result.pendingIntent?.strategy_id ?? STRATEGY_ID;
     await client.query(
       `INSERT INTO decisions (
          decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result
        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         decisionId,
-        STRATEGY_ID,
+        decisionStrategyId,
         snapshotId,
         ticker,
         dbVerdict,

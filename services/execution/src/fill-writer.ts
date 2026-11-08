@@ -2,6 +2,8 @@ import type { streaming } from '@alpacahq/alpaca-trade-api';
 type TradeUpdate = streaming.TradeUpdate;
 import { alpaca } from './alpaca.js';
 import { pool } from './db.js';
+import { sendAlert, fmtUsd } from '@trading-council/alerts';
+import { writePostMortem } from './post-mortem-writer.js';
 
 export async function handleFill(update: TradeUpdate): Promise<void> {
   if (update.event !== 'fill' && update.event !== 'partial_fill') {
@@ -64,6 +66,16 @@ export async function handleFill(update: TradeUpdate): Promise<void> {
       filledAt,
       JSON.stringify(update),
     ],
+  );
+
+  // Post-mortem: look up this order's intent to get entry price + bracket
+  const intentLookup = await pool.query<{
+    intent_id: string; bracket: unknown; qty: string; side: string;
+  }>(
+    `SELECT ti.intent_id, ti.bracket, ti.qty, ti.side
+     FROM orders o JOIN trade_intents ti ON ti.intent_id = o.intent_id
+     WHERE o.client_order_id = $1`,
+    [clientOrderId],
   );
 
   // Fetch authoritative positions and account after fill
@@ -130,6 +142,32 @@ export async function handleFill(update: TradeUpdate): Promise<void> {
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [new Date(), navUsd, peakNav, drawdown, dailyPnl, 0, 'fill'],
   );
+
+  // Alert on significant drawdown
+  if (drawdown >= 0.05) {
+    const pct = (drawdown * 100).toFixed(1);
+    const level = drawdown >= 0.10 ? 'CRITICAL' : 'WARNING';
+    await sendAlert(
+      `[${level}] NAV Drawdown ${pct}%`,
+      `Current NAV: $${navUsd.toFixed(2)}\nPeak NAV: $${peakNav.toFixed(2)}\nDrawdown: ${pct}%\nDaily PnL: ${fmtUsd(dailyPnl)}`,
+    ).catch(() => {});
+  }
+
+  if (update.event === 'fill' && intentLookup.rows.length > 0) {
+    const intentRow = intentLookup.rows[0]!;
+    // Check if position is now closed (qty goes to 0)
+    const openPos = positions.find(p => p.symbol === ticker);
+    if (!openPos) {
+      await writePostMortem(
+        update,
+        intentRow.intent_id,
+        intentRow.bracket,
+        fillPrice,
+        intentRow.side,
+        fillQty,
+      );
+    }
+  }
 
   console.log(
     `[execution] fill-writer: recorded ${update.event} for ${ticker} — qty=${fillQty} price=${fillPrice} nav=${navUsd}`,

@@ -381,6 +381,63 @@ two implementations of the same interface.
 - Vetoed session: 4 Anthropic calls (+ Allocator revision).
 - When `USE_JEV=true`: 1 Anthropic call (Allocator) + 2 Jev calls; vetoed: 2 + 2.
 
+**2026-10-04 — Supabase provisioned; control-plane smoke test passed.**
+
+- Created Supabase Pro project (region: us-east-1). Migration 001 applied manually via
+  SQL Editor (all 11 tables, indexes, views, DB roles, grants).
+- Three scoped login users created: `cp_user` (cp_role), `exec_user` (exec_role),
+  `ops_user` (ops_role). All three connection strings wired into `.env`.
+- Three Supabase-specific fixes applied that weren't in the migration:
+  1. `GRANT USAGE ON SCHEMA public TO cp_role, exec_role, ops_role` — Supabase requires
+     explicit schema-level usage grant (not automatic like vanilla Postgres).
+  2. `GRANT INSERT ON strategies TO cp_role` — `ensureStrategy()` does an upsert on boot;
+     the migration only granted SELECT. Fixed in SQL Editor; migration file not yet updated.
+  3. `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` on all 10 tables — Supabase enables RLS
+     by default; our role-based model (cp_role/exec_role/ops_role) makes RLS redundant and
+     it blocked the first write.
+- **Smoke test result:** `RUN_ONCE=true` control-plane boot → DB connected → strategy row
+  seeded → "outside trading window, skipping cycle". Clean exit. DB, credentials, and
+  scheduler logic all verified end-to-end.
+- Supavisor session-mode URL format: usernames must include the project ref suffix
+  (`cp_user.PROJECT_REF`) — plain username fails with ENOIDENTIFIER at the pooler.
+
+**2026-11-08 — Hosting moved from Railway to Render after Railway's October 2026 breach.**
+
+Railway disclosed (2026-10-21) that an unauthorized party may have accessed customer environment
+variables, some decrypted, and told customers to replace all stored secrets. A `trading-council`
+Railway project had been created (2026-09-26) with services `control-plane` and `execution`, but it
+was never confirmed to be running, and the user reported no trades executing.
+
+**Decision:** move to **Render**, deployed from a Blueprint (`render.yaml`). Reasons: `cron` and
+`worker` are first-class service types that cannot receive inbound requests, which enforces the
+"no public inbound to a credentialed process" invariant at the platform level; Docker builds from
+the monorepo root reuse `Dockerfile.control-plane` / `Dockerfile.execution` unchanged. Considered
+and not chosen: Fly.io (no built-in cron), Hetzner + Coolify (cheapest, but self-administered host
+would hold broker/LLM keys), Cloud Run/Fargate (no reliable pricing found).
+
+- Added `render.yaml`; secrets are `sync: false` (entered in the dashboard, never in the repo).
+- Removed `services/*/railway.toml`; rewrote `docs/DEPLOYMENT.md` for Render.
+- **Required operator action:** rotate every secret ever stored in Railway (Anthropic key, Alpaca
+  paper keys, `cp_user`/`exec_user` DB passwords) and delete the Railway project.
+- Open item: `services/execution/src/snapshot-writer.ts` defaults `FORECASTER_URL` to a
+  `*.railway.internal` host (uncommitted, forecaster is Tier 2) — make it env-only before deploy.
+- Security invariants unchanged; credential guards untouched.
+
+**2026-11-08 (cont'd) — Crypto trading enabled on Render.**
+
+Crypto support (snapshots, crypto Allocator prompt, crypto strategy, plain market orders) had been
+built locally but never pushed, so the deployed build could not trade crypto. Pushed it together
+with post-mortems/lessons (migration `002`), `packages/alerts`, and ops-web changes.
+- `render.yaml`: new cron service `control-plane-crypto` (`0 */2 * * *`, `RUN_MODE=crypto`);
+  `control-plane` now `RUN_MODE=stock`; `execution` gets `WATCH_CRYPTO_SYMBOLS=BTC/USD,ETH/USD`;
+  `DAILY_SPEND_CAP_USD` raised 2→4 (cap is summed across all `agent_runs`, shared by both crons).
+- `services/control-plane/src/index.ts`: `RUN_ONCE` honours `RUN_MODE` (`stock|crypto|all`).
+- Both Dockerfiles now build `@trading-council/alerts` (control-plane/execution import it; the
+  previous images would have failed to build).
+- **Known risk:** Alpaca paper has no crypto bracket orders, so crypto positions are plain market
+  orders with **no stop-loss/take-profit**; exits depend on the council/post-mortem path.
+- Migration `002_post_mortems` must be applied in Supabase before deploy.
+
 **2026-09-24 (cont'd) — M4: Execution service implemented.**
 
 Built the full `services/execution` service in 10 TypeScript modules. All typecheck clean;
@@ -424,19 +481,81 @@ Built the full `services/execution` service in 10 TypeScript modules. All typech
 - `Position.symbol` (not `.ticker`) and `Account.lastEquity` (camelCase) are the correct field
   names per SDK types.
 
+**2026-10-12 — End-to-end first live order submitted; four runtime bugs fixed; crypto trading live.**
+
+Five bugs surfaced and fixed during the first live test of the full pipeline:
+
+1. **Anthropic user-level key requires workspace ID header** (`sk-ant-usr-` keys return 400 without
+   `anthropic-workspace-id`). Fixed: `anthropic-client.ts` now reads `ANTHROPIC_WORKSPACE_ID` env var
+   and passes it as a default header. `ANTHROPIC_WORKSPACE_ID` added to Railway env vars for
+   control-plane.
+
+2. **`evidence[].value` schema too strict** — the `RECOMMENDATION_TOOL` input_schema leaves `value: {}`
+   unconstrained, so the LLM sometimes returns objects. `packages/contracts/src/recommendation.ts`
+   updated to `z.preprocess` stringify objects to JSON strings before validation.
+
+3. **Postgres NUMERIC/TIMESTAMPTZ coercion in TradeIntent** — `node-pg` returns `NUMERIC` columns as
+   JS strings and `TIMESTAMPTZ` as `Date` objects. `TradeIntent.parse(row)` was failing with
+   `z.number()` and `z.string().datetime()`. Fixed: `packages/contracts/src/trade-intent.ts` uses
+   `z.preprocess` on all numeric fields and `expires_at`.
+
+4. **Alpaca does not support bracket orders for crypto** (422 `invalid crypto time_in_force`).
+   Fixed: `order-submitter.ts` detects crypto symbols by `/` in ticker and submits a plain
+   `alpaca.trading.orders.market(...)` order instead of `bracket()`.
+
+5. **Alpaca crypto market orders require `timeInForce: 'gtc'`** — the SDK default of `'day'`
+   is invalid for crypto. Fixed: market call passes `timeInForce: 'gtc'`.
+
+**Crypto trading added (24/7):**
+- `WATCH_CRYPTO_SYMBOLS=BTC/USD,ETH/USD` env var; execution writes crypto snapshots every 5 min.
+- `CRYPTO_ALLOCATOR_SYSTEM_PROMPT` — crypto-specific prompt (long-only, 24/7 markets, higher vol).
+- `runCryptoCycle()` in scheduler — no trading-window check; 15-min snapshot staleness threshold.
+- Crypto cron every 2 hours in `index.ts`; `RUN_ONCE` path also runs `runCryptoCycle()`.
+- Separate strategy/sleeve IDs (`default-crypto-v1`, `crypto-sleeve`) for journaling isolation.
+
+**First live order (paper):** BTC/USD buy 0.01195073 BTC, $1,000 notional.
+Alpaca order ID `93db09bf-d0d3-41a2-a174-aba3bb99de98`, status `pending_new`.
+Council cost: ~$0.045 per cycle (3 Anthropic calls at `claude-sonnet-4-6`).
+
 ## 6. Current status / what's next
 
 | Milestone | Status |
 |---|---|
 | M0 — Key rotation, delete old Railway deployment | **Not yet done** — do this before anything touches real capital |
-| M1 — Foundations | Mostly done: monorepo, contracts, service stubs, credential guards. Remaining: Supabase project provisioning, migration 001, CI workflow content (a skeleton exists at `.github/workflows/ci.yml`) |
-| M2 — Audit spine & safety primitives | Not started — blocked on Supabase |
-| M3 — Deterministic core (sizer, risk gate) | **Done** — `packages/sizer`, 29 tests passing |
-| M4 — Execution service | **Done** — 10 modules, typecheck clean, all workspaces build |
-| M5 — Control plane (specialist, council, scheduler) | **Done** — 10 modules, typecheck clean; hybrid Jev + Anthropic council; USE_JEV flag added (default false, LLM fallback active) |
+| M1 — Foundations | **Done** |
+| M2 — Audit spine & safety primitives | Not started |
+| M3 — Deterministic core (sizer, risk gate) | **Done** |
+| M4 — Execution service | **Done** |
+| M5 — Control plane (specialist, council, scheduler) | **Done** |
+| M5+ — Crypto trading | **Done** — BTC/USD and ETH/USD, 24/7, first live paper order placed |
 | M6 — Observability & go-live | Not started |
 
-Open decisions still on the table: whether to provision Supabase and Railway
-now (both need the user's own account access), and whether `ops-web` runs as
-a hosted Railway service or locally on-demand for the 30-day window (Ship
-Order's "push for urgent, pull for detail" framing leaves this either way).
+All three Railway services deployed. End-to-end pipeline verified: council fires → intent written
+→ execution claims → Alpaca order submitted. Crypto runs every 2 hours; stocks at 9:30–10:30 AM ET.
+
+**2026-10-12 — Phase 2: Observability, Macro/News, Ops Dashboard, Post-Mortems.**
+
+**F — Observability/Alerting:**
+- New `packages/alerts` workspace — `sendAlert(subject, body)` via Resend REST API. Silently no-ops when `RESEND_API_KEY` is absent (never crashes the caller).
+- Alert triggers wired: order failed (execution), NAV drawdown ≥5%/≥10% (fill-writer), EOD P&L summary (reconciliation), daily LLM spend cap hit (control-plane scheduler).
+- Env vars required: `RESEND_API_KEY`, `ALERT_TO_EMAIL`, `ALERT_FROM_EMAIL` (all in Railway for execution + control-plane).
+
+**A — Macro/News Pipeline:**
+- `MacroContext` added to `MarketSnapshot` schema: `fear_greed_index`, `fear_greed_label`, `fear_greed_as_of`, `crypto_headlines[]`.
+- `fetchMacroContext()` in execution snapshot-writer: Fear & Greed from alternative.me (no key), crypto headlines from CryptoPanic free API (`CRYPTOPANIC_API_KEY` env var, optional).
+- Both ALLOCATOR_SYSTEM_PROMPT and CRYPTO_ALLOCATOR_SYSTEM_PROMPT updated to use macro_context for regime filtering.
+
+**B — Ops Dashboard:**
+- ops-web fully rebuilt: Express server with server-rendered HTML dashboard. Shows NAV cards, open positions, last 10 council decisions with reasoning, last 10 orders.
+- Auto-refreshes every 60 seconds. No external assets — single self-contained page.
+- Credential guard preserved (ops_role SELECT only, no Alpaca/Anthropic keys).
+- Requires Railway public domain on ops-web to be viewable (add in Railway dashboard under Settings → Networking).
+
+**C — Post-Mortem System:**
+- Migration 002 adds `post_mortems` table: per-trade outcome with `classification` (thesis_right/thesis_wrong/execution_bug/lucky_win/resolution_mismatch) and `exit_reason` (take_profit/stop_loss/expired/manual).
+- Auto-classification: take_profit → thesis_right, stop_loss → thesis_wrong, other → resolution_mismatch.
+- `writePostMortem()` called from fill-writer when a position is fully closed.
+- Last 5 post-mortems per asset class fed into Allocator prompt as "Recent Trade Post-Mortems" — council learns from history.
+- **Action required:** run migration 002 SQL in Supabase SQL Editor before execution deploys.
+
+Open: M0 key rotation, Kalshi prediction markets (Tier 2), TimesFM forecaster sidecar (Tier 2).

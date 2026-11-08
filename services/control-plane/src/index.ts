@@ -14,7 +14,7 @@ if (process.env['ALPACA_KEY'] || process.env['ALPACA_SECRET']) {
 
 import cron from 'node-cron';
 import { pool } from './db.js';
-import { initScheduler, runCycle } from './scheduler.js';
+import { initScheduler, runCycle, runCryptoCycle } from './scheduler.js';
 
 process.on('SIGTERM', async () => {
   console.log('[control-plane] SIGTERM received, shutting down');
@@ -28,10 +28,13 @@ async function main(): Promise<void> {
   await initScheduler();
 
   // Run once immediately for dev/smoke test convenience, then on cron.
-  // In production, Railway Cron fires once per day at 9:30 AM ET —
+  // In production, Render Cron fires once per day at 9:30 AM ET —
   // the window check inside runCycle() guards against out-of-window fires.
   if (process.env['RUN_ONCE'] === 'true') {
-    await runCycle();
+    // RUN_MODE: 'stock' | 'crypto' | 'all' (default). Render runs one cron per mode.
+    const mode = process.env['RUN_MODE'] ?? 'all';
+    if (mode === 'stock' || mode === 'all') await runCycle();
+    if (mode === 'crypto' || mode === 'all') await runCryptoCycle();
     await pool.end();
     return;
   }
@@ -41,6 +44,11 @@ async function main(): Promise<void> {
   cron.schedule('* 9,10 * * 1-5', () => {
     runCycle().catch((err) => console.error('[control-plane] runCycle error', err));
   }, { timezone: 'America/New_York' });
+
+  // Crypto cron: every 2 hours, 24/7 (no trading window — crypto never closes)
+  cron.schedule('0 */2 * * *', () => {
+    runCryptoCycle().catch((err) => console.error('[control-plane] runCryptoCycle error', err));
+  });
 
   console.log('[control-plane] cron scheduled — waiting for trading window');
 }

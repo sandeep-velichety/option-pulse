@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.35.0",
     "@trading-council/contracts": "*",
+    "@trading-council/alerts": "*",
     "@trading-council/sizer": "*",
     "@typesafe-ai/sdk": "^0.6.0",
     "node-cron": "^3.0.3",
