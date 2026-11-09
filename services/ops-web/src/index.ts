@@ -15,7 +15,22 @@ const { Pool } = pg;
 const url = process.env['OPS_DATABASE_URL'];
 if (!url) throw new Error('[ops-web] OPS_DATABASE_URL is required');
 
-const pool = new Pool({ connectionString: url, max: 3 });
+// Password can come from the URL, OPS_DB_PASSWORD, or PGPASSWORD (first non-empty wins).
+// Logged as present/absent only — the value is never printed.
+const dbPassword = (process.env['OPS_DB_PASSWORD'] ?? process.env['PGPASSWORD'] ?? '').trim();
+let urlHasPassword = false;
+try { urlHasPassword = new URL(url).password !== ''; } catch { /* malformed URL handled by pg */ }
+console.log(
+  `[ops-web] db credentials: url_password=${urlHasPassword} OPS_DB_PASSWORD=${Boolean(process.env['OPS_DB_PASSWORD']?.trim())} PGPASSWORD=${Boolean(process.env['PGPASSWORD']?.trim())}`,
+);
+if (!urlHasPassword && !dbPassword) {
+  console.error('[ops-web] no DB password found: set OPS_DB_PASSWORD (or PGPASSWORD) on this service');
+}
+const pool = new Pool({
+  connectionString: url,
+  max: 3,
+  ...(dbPassword && !urlHasPassword ? { password: dbPassword } : {}),
+});
 
 // Diagnostics: which DB user are we, and what can it read? (username only, never the password)
 async function whoAmI(): Promise<string> {
