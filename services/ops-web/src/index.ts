@@ -17,6 +17,22 @@ if (!url) throw new Error('[ops-web] OPS_DATABASE_URL is required');
 
 const pool = new Pool({ connectionString: url, max: 3 });
 
+// Diagnostics: which DB user are we, and what can it read? (username only, never the password)
+async function whoAmI(): Promise<string> {
+  try {
+    const r = await pool.query<{ u: string; dec: boolean; runs: boolean }>(
+      `SELECT current_user AS u,
+              has_table_privilege(current_user, 'public.decisions', 'SELECT') AS dec,
+              has_table_privilege(current_user, 'public.agent_runs', 'SELECT') AS runs`,
+    );
+    const x = r.rows[0]!;
+    return `db user=${x.u} can_select(decisions=${x.dec}, agent_runs=${x.runs})`;
+  } catch (e) {
+    return `db user unknown (${String(e)})`;
+  }
+}
+whoAmI().then((m) => console.log('[ops-web]', m));
+
 const app = express();
 const PORT = process.env['PORT'] ?? '3000';
 
@@ -88,7 +104,7 @@ app.get('/decisions', async (req, res) => {
     res.send(renderDecisionsPage(rows.rows, counts.rows, { verdict, asset, limit }));
   } catch (err) {
     console.error('[ops-web] /decisions error', err);
-    res.status(500).send('Decisions error');
+    res.status(500).send('Decisions error: ' + String(err) + '\n\n' + (await whoAmI()));
   }
 });
 
@@ -264,7 +280,7 @@ app.get('/', async (_req, res) => {
 <script>setTimeout(() => location.reload(), 60000);</script>
 </body></html>`);
   } catch (err) {
-    res.status(500).send('Dashboard error: ' + String(err));
+    res.status(500).send('Dashboard error: ' + String(err) + '\n\n' + (await whoAmI()));
   }
 });
 
