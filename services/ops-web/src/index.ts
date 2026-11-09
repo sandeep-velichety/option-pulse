@@ -26,11 +26,10 @@ console.log(
 if (!urlHasPassword && !dbPassword) {
   console.error('[ops-web] no DB password found: set OPS_DB_PASSWORD (or PGPASSWORD) on this service');
 }
-const pool = new Pool({
-  connectionString: url,
-  max: 3,
-  ...(dbPassword && !urlHasPassword ? { password: dbPassword } : {}),
-});
+// pg ignores an explicit `password` option when `connectionString` is given (the parsed URL
+// overwrites it with null), but it does fall back to PGPASSWORD — so hand it over that way.
+if (dbPassword && !urlHasPassword) process.env['PGPASSWORD'] = dbPassword;
+const pool = new Pool({ connectionString: url, max: 3 });
 
 // Diagnostics: which DB user are we, and what can it read? (username only, never the password)
 async function whoAmI(): Promise<string> {
