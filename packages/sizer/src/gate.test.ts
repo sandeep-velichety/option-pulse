@@ -231,3 +231,22 @@ describe("riskGate — multiple failures reported together", () => {
     expect(result.reason).toContain("daily_loss_limit");
   });
 });
+
+describe("riskGate — no_open_position", () => {
+  it("passes when openPositionTickers is omitted (backward compatible)", () => {
+    const result = riskGate(INTENT, SNAPSHOT, PORTFOLIO);
+    expect(result.checks.find((c) => c.name === "no_open_position")?.pass).toBe(true);
+  });
+
+  it("fails when the ticker is already held", () => {
+    const result = riskGate(INTENT, SNAPSHOT, { ...PORTFOLIO, openPositionTickers: ["AAPL"] });
+    expect(result.allow).toBe(false);
+    expect(result.checks.find((c) => c.name === "no_open_position")?.pass).toBe(false);
+    expect(result.reason).toContain("no_open_position");
+  });
+
+  it("passes when only other tickers are held", () => {
+    const result = riskGate(INTENT, SNAPSHOT, { ...PORTFOLIO, openPositionTickers: ["MSFT"] });
+    expect(result.allow).toBe(true);
+  });
+});

@@ -401,6 +401,48 @@ two implementations of the same interface.
 - Supavisor session-mode URL format: usernames must include the project ref suffix
   (`cp_user.PROJECT_REF`) — plain username fails with ENOIDENTIFIER at the pooler.
 
+**2026-11-12 — Incident review: why trading stopped, and the fixes.**
+
+Read the production database (read-only) after "no trades are happening". Findings, all confirmed in data:
+- **Last decision was 2026-11-06; zero stock decisions ever; zero abstains.** 25 decisions, all BTC/ETH
+  (13 gate_rejected, 7 approve, 5 reject). Crypto fills did happen (BTC ~0.062, ETH ~0.448 held, both
+  underwater); `execution` is healthy (NAV/snapshots current).
+- **Root cause of crypto freezing:** trade_intents reach `submitted` and nothing ever advances them;
+  the gate's `no_duplicate_intent` counted every `submitted` intent forever, so BTC was blocked from
+  Oct 12 and ETH from Oct 30 (13 consecutive `gate_rejected`). The same unfiltered sum also fed the
+  asymmetric-exposure cap (control-plane scheduler and execution fill-writer).
+- **Council was vetoing on a data gap:** `FRED_API_KEY` unset → snapshots carry `vix=0, stale_days=999`; the
+  Adversary read that as corrupted macro data and cited `regime_change` on almost every run.
+- **Crypto positions are never closed** (Alpaca paper has no crypto brackets) — a design gap.
+- **Order bookkeeping bug:** Alpaca placement and DB writes shared one try/catch, so a DB error after a
+  successful placement marked the intent `failed` while the order was live. The BTC position is ~5x its
+  sized notional, consistent with this (still unreconciled: check the `orders` table).
+- `post_mortems` (migration 002) was never applied; the old post-mortem writer also passed the fill price as the
+  entry price (P&L always 0) and fired on buy fills.
+- `control-plane` Render crons wrote nothing since Nov 6; code builds and boots from a clean clone, so the cause
+  is Render-side config/secrets (logs needed). Cause of zero stock decisions is still unknown.
+
+Fixes (this change):
+1. **Intent liveness.** Only intents with `expires_at > NOW()` count as open (gate + asymmetric budget, both
+   places). New gate check `no_open_position` (one position per ticker, from `positions_snapshot`, with
+   `BTCUSD`→`BTC/USD` normalisation). No new statuses (the TradeIntent contract and CHECK stay as-is).
+2. **VIX.** `prompt-view.regimeForPrompt` presents a missing feed as `vix: null, vix_available: false` with an
+   explicit "data gap, not a signal" note; Adversary/Risk prompts say missing inputs are not evidence;
+   `execution` warns once when `FRED_API_KEY` is unset; `render.yaml` declares it.
+3. **Migration 002** made idempotent and shipped as pasteable SQL (`packages/db/manual/`), because the DB has no
+   `pgmigrations` table. Must be applied by the user (needs super-user).
+4. **Crypto exits.** Pure, tested `evaluateExit` in `packages/sizer` (stop 5–15%, take-profit 10–40%, time exit at
+   horizon+1d). `control-plane-crypto` writes a decision + `sell` intent (`journal.writeExitIntent`) through the
+   normal queue — control-plane still holds no Alpaca credentials; execution places the order. Exit reason is
+   carried in `bracket.exit_reason` because `exec_role` cannot read `decisions`. Post-mortems now use true
+   volume-weighted entry price and only fire on our exit sells. **Ships in dry-run**
+   (`CRYPTO_EXIT_DRY_RUN=true`): dry-run against production data showed both positions would be stopped out
+   (BTC −14.9%, ETH −9.1%, ≈ −$860 realised paper loss) — flip to `false` deliberately.
+5. **order-submitter** split into placement vs bookkeeping; a bookkeeping failure now alerts and still marks the
+   intent `submitted` instead of `failed`.
+
+Security invariants unchanged; credential guards untouched.
+
 **2026-11-08 — Hosting moved from Railway to Render after Railway's October 2026 breach.**
 
 Railway disclosed (2026-10-21) that an unauthorized party may have accessed customer environment

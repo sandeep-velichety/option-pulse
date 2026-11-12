@@ -29,6 +29,7 @@ export async function runEodReconciliation(): Promise<void> {
       `SELECT COALESCE(SUM(notional_usd), 0)::text AS total
        FROM trade_intents
        WHERE status IN ('pending', 'claimed', 'submitted')
+         AND expires_at > NOW()
          AND bet_class = 'asymmetric'`,
     );
     const asymmetricNotional = parseFloat(

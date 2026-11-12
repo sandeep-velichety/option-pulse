@@ -13,6 +13,8 @@ import {
   type Bar,
 } from './compute-technicals.js';
 
+let vixWarned = false;
+
 async function fetchVix(): Promise<{
   vix: number;
   vix_as_of: string;
@@ -20,6 +22,13 @@ async function fetchVix(): Promise<{
 }> {
   const fredKey = process.env['FRED_API_KEY'];
   if (!fredKey) {
+    if (!vixWarned) {
+      vixWarned = true;
+      console.warn(
+        '[execution] FRED_API_KEY is not set — snapshots carry vix=0/stale_days=999. ' +
+          'The council treats this as "VIX unavailable", but set the key for real regime data.',
+      );
+    }
     return { vix: 0, vix_as_of: new Date().toISOString(), vix_stale_days: 999 };
   }
   try {

@@ -22,11 +22,13 @@ function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
+import { regimeForPrompt } from './prompt-view.js';
+
 function snapshotForPrompt(snapshot: MarketSnapshot): Record<string, unknown> {
   return {
     as_of: snapshot.as_of,
     session: snapshot.session,
-    regime: snapshot.regime,
+    regime: regimeForPrompt(snapshot),
     symbols: Object.fromEntries(
       Object.entries(snapshot.symbols).map(([ticker, sym]) => [
         ticker,

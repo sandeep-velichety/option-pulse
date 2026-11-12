@@ -175,3 +175,90 @@ export async function writeJournal(
     client.release();
   }
 }
+
+export interface ExitIntentParams {
+  ticker: string;
+  qty: number;
+  lastPrice: number;
+  navUsd: number;
+  snapshotId: string;
+  /** 'stop_loss' | 'take_profit' | 'time_exit' */
+  reason: string;
+  detail: string;
+}
+
+/**
+ * Journal a deterministic exit: one decision row (verdict 'approve', reason "exit:<reason> ...")
+ * plus a 'sell' trade intent that flows through the normal claim → submit → fill pipeline.
+ * The control-plane never touches Alpaca; execution places the order.
+ *
+ * The exit reason is also stored in bracket.exit_reason because exec_role cannot read
+ * `decisions` but must know why a sell fill happened (post-mortems). The TradeIntent zod
+ * schema ignores unknown bracket keys, and bracket prices are placeholders (crypto sells
+ * are plain market orders).
+ */
+export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
+  const decisionId = crypto.randomUUID();
+  const intentId = crypto.randomUUID();
+  const clientOrderId = deterministicClientOrderId(
+    CRYPTO_STRATEGY_ID,
+    p.ticker,
+    'sell',
+    etTodayISO(),
+    decisionId,
+  );
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
+  const notional = Math.max(p.qty * p.lastPrice, 0.01);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO decisions (decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result)
+       VALUES ($1, $2, $3, $4, 'approve', $5, NULL)`,
+      [decisionId, CRYPTO_STRATEGY_ID, p.snapshotId, p.ticker, `exit:${p.reason} — ${p.detail}`],
+    );
+    await client.query(
+      `INSERT INTO trade_intents (
+         intent_id, run_id, decision_id, client_order_id, ticker, side, qty,
+         notional_usd, order_type, limit_price, time_in_force, bracket,
+         bet_class, sleeve_id, strategy_id, sizing, expires_at, status, schema_version
+       ) VALUES ($1,$2,$3,$4,$5,'sell',$6,$7,'market',NULL,'day',$8,'core',$9,$10,$11,$12,'pending',1)`,
+      [
+        intentId,
+        crypto.randomUUID(),
+        decisionId,
+        clientOrderId,
+        p.ticker,
+        p.qty.toFixed(8),
+        notional.toFixed(2),
+        JSON.stringify({
+          take_profit_price: p.lastPrice,
+          stop_loss_price: p.lastPrice,
+          exit_reason: p.reason,
+        }),
+        CRYPTO_SLEEVE_ID,
+        CRYPTO_STRATEGY_ID,
+        JSON.stringify({
+          nav_at_decision: p.navUsd,
+          edge: 0,
+          variance: 0,
+          kelly_f_raw: null,
+          kelly_f_capped: 0,
+          cap_applied: 'none',
+        }),
+        expiresAt,
+      ],
+    );
+    await client.query('COMMIT');
+    console.log(
+      `[control-plane] exit intent written: ${p.ticker} sell qty=${p.qty} reason=${p.reason} decision=${decisionId}`,
+    );
+    return decisionId;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}

@@ -74,6 +74,11 @@ services:
         value: "true"
       - key: RUN_MODE
         value: crypto
+      # Crypto has no broker-side stop/take-profit, so this cron also closes positions
+      # (stop-loss / take-profit / time exit). DRY RUN = log only, never sells. Review the
+      # "[exits][DRY RUN]" log lines, then set this to "false" to go live.
+      - key: CRYPTO_EXIT_DRY_RUN
+        value: "true"
       - key: NODE_ENV
         value: production
       - key: APP_MODE
@@ -100,6 +105,9 @@ services:
         value: AAPL,MSFT,NVDA,TSLA,SPY
       - key: WATCH_CRYPTO_SYMBOLS
         value: BTC/USD,ETH/USD
+      # VIX comes from FRED. Without this the snapshot carries vix=0 / stale_days=999.
+      - key: FRED_API_KEY
+        sync: false
       - key: NODE_ENV
         value: production
       - key: APP_MODE

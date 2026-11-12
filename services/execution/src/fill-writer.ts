@@ -5,6 +5,69 @@ import { pool } from './db.js';
 import { sendAlert, fmtUsd } from '@trading-council/alerts';
 import { writePostMortem } from './post-mortem-writer.js';
 
+/** exit_reason values the control-plane writes into trade_intents.bracket for exit intents. */
+const EXIT_REASONS = new Set(['stop_loss', 'take_profit', 'time_exit']);
+
+async function recordExitPostMortem(
+  clientOrderId: string,
+  orderId: string,
+  ticker: string,
+  eventPrice: number,
+  eventQty: number,
+  orderFilledQty: number,
+  orderAvgPrice: number,
+  filledAt: Date,
+): Promise<void> {
+  try {
+    const intent = await pool.query<{ intent_id: string; bracket: unknown }>(
+      `SELECT ti.intent_id, ti.bracket
+         FROM orders o JOIN trade_intents ti ON ti.intent_id = o.intent_id
+        WHERE o.client_order_id = $1`,
+      [clientOrderId],
+    );
+    const row = intent.rows[0];
+    if (!row) return;
+    const bracket = (typeof row.bracket === 'string' ? JSON.parse(row.bracket) : row.bracket) as
+      | { exit_reason?: string }
+      | null;
+    const reason = bracket?.exit_reason;
+    if (!reason || !EXIT_REASONS.has(reason)) return; // not one of our exit orders
+
+    // The exit may fill in several events (partial_fill ... fill). Use the ORDER's cumulative
+    // quantity and average price (from the broker's order object), not the last event's.
+    const qty = orderFilledQty > 0 ? orderFilledQty : eventQty;
+    const exitPrice = orderAvgPrice > 0 ? orderAvgPrice : eventPrice;
+
+    // Entry price = volume-weighted average of buy fills since the previous sell of this ticker.
+    // Exclude this order's own (partial) fills when finding "the previous sell".
+    const entry = await pool.query<{ avg: string | null }>(
+      `SELECT SUM(qty * fill_price) / NULLIF(SUM(qty), 0) AS avg
+         FROM fills
+        WHERE ticker = $1 AND side = 'buy' AND filled_at <= $2
+          AND filled_at > COALESCE(
+                (SELECT MAX(filled_at) FROM fills
+                  WHERE ticker = $1 AND side = 'sell' AND filled_at < $2 AND order_id <> $3),
+                '-infinity'::timestamptz)`,
+      [ticker, filledAt, orderId],
+    );
+    const entryPrice = parseFloat(entry.rows[0]?.avg ?? '');
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+      console.warn(`[execution] post-mortem: no entry fills found for ${ticker}, skipping`);
+      return;
+    }
+    await writePostMortem({
+      intentId: row.intent_id,
+      ticker,
+      entryPrice,
+      exitPrice,
+      qty,
+      exitReason: reason as 'stop_loss' | 'take_profit' | 'time_exit',
+    });
+  } catch (err) {
+    console.error('[execution] fill-writer: post-mortem lookup failed (non-fatal)', err);
+  }
+}
+
 export async function handleFill(update: TradeUpdate): Promise<void> {
   if (update.event !== 'fill' && update.event !== 'partial_fill') {
     return;
@@ -68,16 +131,6 @@ export async function handleFill(update: TradeUpdate): Promise<void> {
     ],
   );
 
-  // Post-mortem: look up this order's intent to get entry price + bracket
-  const intentLookup = await pool.query<{
-    intent_id: string; bracket: unknown; qty: string; side: string;
-  }>(
-    `SELECT ti.intent_id, ti.bracket, ti.qty, ti.side
-     FROM orders o JOIN trade_intents ti ON ti.intent_id = o.intent_id
-     WHERE o.client_order_id = $1`,
-    [clientOrderId],
-  );
-
   // Fetch authoritative positions and account after fill
   const [positions, account] = await Promise.all([
     alpaca.trading.positions.getAllOpenPositions(),
@@ -102,6 +155,7 @@ export async function handleFill(update: TradeUpdate): Promise<void> {
     `SELECT COALESCE(SUM(notional_usd), 0)::text AS total
      FROM trade_intents
      WHERE status IN ('pending', 'claimed', 'submitted')
+       AND expires_at > NOW()
        AND bet_class = 'asymmetric'`,
   );
   const asymmetricNotional = parseFloat(
@@ -153,20 +207,25 @@ export async function handleFill(update: TradeUpdate): Promise<void> {
     ).catch(() => {});
   }
 
-  if (update.event === 'fill' && intentLookup.rows.length > 0) {
-    const intentRow = intentLookup.rows[0]!;
-    // Check if position is now closed (qty goes to 0)
-    const openPos = positions.find(p => p.symbol === ticker);
-    if (!openPos) {
-      await writePostMortem(
-        update,
-        intentRow.intent_id,
-        intentRow.bracket,
-        fillPrice,
-        intentRow.side,
-        fillQty,
-      );
-    }
+  // Post-mortem: only for exit sells that we issued (control-plane tags them with
+  // bracket.exit_reason). Entry fills and broker-side bracket children are not post-mortems.
+  if (update.event === 'fill' && side === 'sell') {
+    const orderQty = parseFloat(
+      String(update.order['filledQty'] ?? update.order['filled_qty'] ?? ''),
+    );
+    const orderAvg = parseFloat(
+      String(update.order['filledAvgPrice'] ?? update.order['filled_avg_price'] ?? ''),
+    );
+    await recordExitPostMortem(
+      clientOrderId,
+      orderId,
+      ticker,
+      fillPrice,
+      fillQty,
+      Number.isFinite(orderQty) ? orderQty : 0,
+      Number.isFinite(orderAvg) ? orderAvg : 0,
+      filledAt,
+    );
   }
 
   console.log(

@@ -14,7 +14,7 @@
 /** @param {import('node-pg-migrate').MigrationBuilder} pgm */
 export const up = (pgm) => {
   pgm.sql(`
-    CREATE TABLE post_mortems (
+    CREATE TABLE IF NOT EXISTS post_mortems (
       pm_id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
       intent_id        UUID        NOT NULL REFERENCES trade_intents(intent_id),
       ticker           TEXT        NOT NULL,
@@ -30,7 +30,7 @@ export const up = (pgm) => {
       notes            TEXT,
       created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-    CREATE INDEX post_mortems_ticker ON post_mortems (ticker, created_at DESC);
+    CREATE INDEX IF NOT EXISTS post_mortems_ticker ON post_mortems (ticker, created_at DESC);
     GRANT INSERT, SELECT ON post_mortems TO exec_role;
     GRANT SELECT         ON post_mortems TO cp_role;
     GRANT SELECT         ON post_mortems TO ops_role;

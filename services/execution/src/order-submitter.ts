@@ -38,11 +38,13 @@ export async function submitOrder(
     );
   }
 
+  // 1. Place the order. Only a failure HERE means no order exists at the broker.
+  let order;
   try {
     // Crypto symbols contain '/' (e.g. BTC/USD). Alpaca paper does not support
     // bracket orders for crypto — submit a plain market order instead.
     const isCrypto = intent.ticker.includes('/');
-    const order = isCrypto
+    order = isCrypto
       ? await alpaca.trading.orders.market({
           symbol: intent.ticker,
           side: intent.side,
@@ -59,7 +61,33 @@ export async function submitOrder(
           takeProfit: { limitPrice: intent.bracket.take_profit_price },
           stopLoss: { stopPrice: intent.bracket.stop_loss_price },
         });
+  } catch (err) {
+    console.error(
+      `[execution] order-submitter: Alpaca error for intent ${intent.intent_id}`,
+      err,
+    );
+    try {
+      await pool.query(
+        `UPDATE trade_intents SET status = 'failed' WHERE intent_id = $1`,
+        [intent.intent_id],
+      );
+      await sendAlert(
+        `Order failed: ${intent.ticker} ${intent.side}`,
+        `Intent ${intent.intent_id} failed.\nTicker: ${intent.ticker}\nSide: ${intent.side}\nNotional: $${intent.notional_usd}\nError: ${err instanceof Error ? err.message : String(err)}`,
+      ).catch(() => {});
+    } catch (dbErr) {
+      console.error(
+        `[execution] order-submitter: failed to mark intent ${intent.intent_id} as failed`,
+        dbErr,
+      );
+    }
+    return;
+  }
 
+  // 2. The order now EXISTS at the broker. Bookkeeping failures below must never mark the
+  //    intent 'failed' (that previously left live, untracked positions and let the council
+  //    re-propose the same trade). Record what we can and alert loudly instead.
+  try {
     await pool.query(
       `INSERT INTO orders
          (intent_id, client_order_id, alpaca_order_id, ticker, side, qty, order_type, alpaca_status, raw_response)
@@ -87,23 +115,18 @@ export async function submitOrder(
     );
   } catch (err) {
     console.error(
-      `[execution] order-submitter: Alpaca error for intent ${intent.intent_id}`,
+      `[execution] order-submitter: order ${order.id} PLACED but bookkeeping failed for intent ${intent.intent_id}`,
       err,
     );
-    try {
-      await pool.query(
-        `UPDATE trade_intents SET status = 'failed' WHERE intent_id = $1`,
-        [intent.intent_id],
-      );
-      await sendAlert(
-        `Order failed: ${intent.ticker} ${intent.side}`,
-        `Intent ${intent.intent_id} failed.\nTicker: ${intent.ticker}\nSide: ${intent.side}\nNotional: $${intent.notional_usd}\nError: ${err instanceof Error ? err.message : String(err)}`,
-      ).catch(() => {});
-    } catch (dbErr) {
-      console.error(
-        `[execution] order-submitter: failed to mark intent ${intent.intent_id} as failed`,
-        dbErr,
-      );
-    }
+    // Best effort: still mark it submitted so it is not re-claimed and re-placed.
+    await pool
+      .query(`UPDATE trade_intents SET status = 'submitted' WHERE intent_id = $1`, [intent.intent_id])
+      .catch(() => {});
+    await sendAlert(
+      `Order placed but NOT recorded: ${intent.ticker} ${intent.side}`,
+      `Alpaca order ${order.id} exists for intent ${intent.intent_id} (${intent.ticker} ${intent.side} x${intent.qty}) ` +
+        `but writing the orders row failed: ${err instanceof Error ? err.message : String(err)}\n` +
+        `Reconcile manually in Alpaca.`,
+    ).catch(() => {});
   }
 }

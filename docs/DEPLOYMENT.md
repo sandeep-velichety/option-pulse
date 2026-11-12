@@ -79,7 +79,27 @@ top of each `services/*/src/index.ts` throw at boot.
 
 ---
 
-## Step 3 — Smoke test
+## Step 3 — One-time database + data fixes (after the Nov 2026 incident review)
+
+1. **Apply migration 002** (`post_mortems`). This database has no `pgmigrations` table, so do **not**
+   run `npm run migrate` (it would try to re-run 001). Paste
+   [`packages/db/manual/apply_002_post_mortems.sql`](../packages/db/manual/apply_002_post_mortems.sql)
+   into the Supabase SQL editor (as `postgres`). It is safe to re-run; the last query should return
+   three `true` values.
+2. **Set `FRED_API_KEY` on `execution`** (free key at fred.stlouisfed.org → My Account → API Keys).
+   Without it every snapshot carries `vix=0, vix_stale_days=999`; the council now reads that as "VIX
+   unavailable" rather than a risk signal, but you want the real value.
+3. **Crypto exits.** Alpaca paper cannot attach stop-loss/take-profit to crypto, so `control-plane-crypto`
+   closes crypto positions itself (stop-loss 5–15% below entry, take-profit 10–40% above, or time exit
+   at thesis horizon + 1 day). It ships in **dry-run**: look for `[exits][DRY RUN] would SELL …` in the
+   `control-plane-crypto` logs, and when you are happy set `CRYPTO_EXIT_DRY_RUN=false` on that service.
+   Until you do, held crypto tickers stay blocked (one position per ticker) and nothing new trades in
+   them. Set `CRYPTO_EXITS_ENABLED=false` to turn the whole thing off.
+
+---
+
+
+## Step 4 — Smoke test
 
 **execution → Logs:**
 ```

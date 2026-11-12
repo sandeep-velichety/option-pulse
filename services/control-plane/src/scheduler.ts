@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { runCouncil } from './council.js';
 import { writeJournal, ensureStrategy, ensureCryptoStrategy } from './journal.js';
+import { parsePositionTickers } from './tickers.js';
+import { runCryptoExits } from './exits.js';
 import { sendAlert } from '@trading-council/alerts';
 import type { PortfolioState } from '@trading-council/sizer';
 import type { MarketSnapshot } from '@trading-council/contracts';
@@ -85,7 +87,7 @@ async function loadLatestCryptoSnapshot(): Promise<{
 }
 
 async function loadPortfolioState(): Promise<PortfolioState> {
-  const [navResult, asymResult, tickersResult] = await Promise.all([
+  const [navResult, asymResult, tickersResult, positionsResult] = await Promise.all([
     pool.query<{
       nav_usd: string;
       peak_nav_usd: string;
@@ -93,17 +95,26 @@ async function loadPortfolioState(): Promise<PortfolioState> {
       halt_level: number;
     }>(`SELECT nav_usd, peak_nav_usd, daily_pnl_usd, halt_level
         FROM nav_history ORDER BY as_of DESC LIMIT 1`),
+    // Only LIVE intents count. A 'submitted' intent is never moved to a final status, so
+    // without the expiry filter one filled order blocks its ticker (and eats the asymmetric
+    // budget) forever — that is what froze all crypto trading after the first fills.
     pool.query<{ total: string }>(
       `SELECT COALESCE(SUM(notional_usd), 0)::text AS total
        FROM trade_intents
        WHERE status IN ('pending', 'claimed', 'submitted')
+         AND expires_at > NOW()
          AND bet_class = 'asymmetric'`,
     ),
     pool.query<{ ticker: string }>(
       `SELECT DISTINCT ticker FROM trade_intents
-       WHERE status IN ('pending', 'claimed', 'submitted')`,
+       WHERE status IN ('pending', 'claimed', 'submitted')
+         AND expires_at > NOW()`,
+    ),
+    pool.query<{ positions: unknown }>(
+      `SELECT positions FROM positions_snapshot ORDER BY as_of DESC LIMIT 1`,
     ),
   ]);
+  const openPositionTickers = parsePositionTickers(positionsResult.rows[0]?.positions);
 
   if (navResult.rows.length === 0) {
     return {
@@ -113,6 +124,7 @@ async function loadPortfolioState(): Promise<PortfolioState> {
       dailyPnlUsd: 0,
       asymmetricNotionalOpen: 0,
       openIntentTickers: [],
+      openPositionTickers,
     };
   }
 
@@ -124,6 +136,7 @@ async function loadPortfolioState(): Promise<PortfolioState> {
     dailyPnlUsd: parseFloat(nav.daily_pnl_usd),
     asymmetricNotionalOpen: parseFloat(asymResult.rows[0]?.total ?? '0'),
     openIntentTickers: tickersResult.rows.map((r) => r.ticker),
+    openPositionTickers,
   };
 }
 
@@ -213,14 +226,21 @@ export async function runCycle(): Promise<void> {
 }
 
 export async function runCryptoCycle(): Promise<void> {
-  const withinCap = await checkDailySpendCap();
-  if (!withinCap) return;
-
   const snapshotData = await loadLatestCryptoSnapshot();
   if (!snapshotData) {
     console.log('[control-plane] no fresh crypto snapshot, skipping cycle');
     return;
   }
+
+  // Exits first: deterministic, no LLM cost, so they run even when the spend cap is hit.
+  try {
+    await runCryptoExits(snapshotData.snapshot, snapshotData.snapshotId);
+  } catch (err) {
+    console.error('[control-plane] crypto exits error (non-fatal)', err);
+  }
+
+  const withinCap = await checkDailySpendCap();
+  if (!withinCap) return;
 
   const portfolio = await loadPortfolioState();
   const recentLessons = await loadRecentLessons('crypto');

@@ -74,11 +74,19 @@ export function riskGate(
     detail: `drawdown=${(drawdown * 100).toFixed(2)}% limit=${(config.maxDrawdownFraction * 100).toFixed(2)}%`,
   });
 
-  // 6. No duplicate pending intent for the same ticker
+  // 6. No live (unexpired) pending/claimed/submitted intent for the same ticker
   checks.push({
     name: "no_duplicate_intent",
     pass: !portfolio.openIntentTickers.includes(intent.ticker),
     detail: `ticker=${intent.ticker}`,
+  });
+
+  // 6b. One position per ticker — never add to a position that is already open.
+  const held = portfolio.openPositionTickers ?? [];
+  checks.push({
+    name: "no_open_position",
+    pass: !held.includes(intent.ticker),
+    detail: `ticker=${intent.ticker} held=${held.includes(intent.ticker)}`,
   });
 
   // 7. Notional must be positive — catches floored sizer output

@@ -2,6 +2,7 @@ import { TypeSafeClient, noul, choice, score } from '@typesafe-ai/sdk';
 import type { StockRecommendation, MarketSnapshot } from '@trading-council/contracts';
 import type { SizerOutput } from '@trading-council/sizer';
 import type { AdversaryResult, RiskOfficerResult } from './types.js';
+import { regimeForPrompt } from './prompt-view.js';
 
 // Re-export for backward compatibility
 export type { AdversaryResult as JevAdversaryResult, RiskOfficerResult as JevRiskOfficerResult };
@@ -38,7 +39,7 @@ export async function callJevAdversary(
     invalidation_condition: recommendation.invalidation_condition,
     evidence: recommendation.evidence,
     bet_class: recommendation.bet_class,
-    market_regime: { vix: snapshot.regime.vix, session: snapshot.session },
+    market_regime: { ...regimeForPrompt(snapshot), session: snapshot.session },
     technicals: sym
       ? {
           last: sym.last,
@@ -113,7 +114,7 @@ export async function callJevRiskOfficer(
       drawdown_fraction: portfolioDrawdown,
       daily_pnl_fraction: dailyPnlFraction,
     },
-    market_regime: { vix: snapshot.regime.vix, session: snapshot.session },
+    market_regime: { ...regimeForPrompt(snapshot), session: snapshot.session },
   };
 
   const start = Date.now();

@@ -5,8 +5,16 @@ export interface PortfolioState {
   dailyPnlUsd: number;
   /** Total notional USD currently open in asymmetric positions */
   asymmetricNotionalOpen: number;
-  /** Tickers that already have a pending or claimed trade intent */
+  /**
+   * Tickers with a LIVE trade intent: pending/claimed/submitted AND not yet expired.
+   * (A 'submitted' intent past its expires_at is resolved — it must not block the ticker.)
+   */
   openIntentTickers: ReadonlyArray<string>;
+  /**
+   * Tickers currently held as positions (intent-ticker format, e.g. "BTC/USD").
+   * Optional for backward compatibility; omitted/empty disables the no_open_position check.
+   */
+  openPositionTickers?: ReadonlyArray<string>;
 }
 
 export interface GateConfig {

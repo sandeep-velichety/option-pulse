@@ -9,6 +9,7 @@ import {
   RISK_OFFICER_TOOL,
 } from './prompts.js';
 import type { AdversaryResult, RiskOfficerResult } from './types.js';
+import { regimeForPrompt } from './prompt-view.js';
 
 export const LLM_CLASSIFIER_MODEL = ANTHROPIC_MODEL;
 
@@ -30,7 +31,7 @@ export async function callLlmAdversary(
         invalidation_condition: recommendation.invalidation_condition,
         evidence: recommendation.evidence,
       },
-      market_regime: { vix: snapshot.regime.vix, session: snapshot.session },
+      market_regime: { ...regimeForPrompt(snapshot), session: snapshot.session },
       technicals: sym
         ? { ma20: sym.ma20, ma50: sym.ma50, realized_vol_20d: sym.realized_vol_20d }
         : null,
@@ -105,7 +106,7 @@ export async function callLlmRiskOfficer(
         drawdown_fraction: portfolioDrawdown,
         daily_pnl_fraction: dailyPnlFraction,
       },
-      market: { vix: snapshot.regime.vix, session: snapshot.session },
+      market: { ...regimeForPrompt(snapshot), session: snapshot.session },
     },
     null,
     2,
