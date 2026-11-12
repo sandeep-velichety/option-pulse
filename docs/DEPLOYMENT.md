@@ -152,3 +152,21 @@ execution logs for Alpaca errors.
 
 Suspend the control-plane cron in Render to stop new decisions; execution can keep running (it
 only orders when `trade_intents` appear). To stop everything, suspend or delete both services.
+
+---
+
+## Tracing a cycle (why did / didn't it trade?)
+
+Each control-plane cycle logs one line per stage, tagged `[control-plane][stock]` or `[control-plane][crypto]`
+with a short cycle id, and always ends in exactly one terminal line:
+
+| Terminal line | Meaning |
+|---|---|
+| `done {verdict,...}` | A decision was journaled (approve / reject / abstain / gate_rejected). |
+| `skip {reason}` | Deliberate: `outside_trading_window`, `daily_spend_cap_reached`, `no_stock_snapshot_in_db`, `stock_snapshot_stale`, `no_fresh_crypto_snapshot`. |
+| `error {stage,...}` | Crashed; `stage` is `spend_cap`, `load_snapshot`, `load_portfolio`, `council` or `journal`, with the error name, message, HTTP status (Anthropic) or Zod issues. |
+
+Stages in between: `start` (UTC + ET clock, window, backend) → `snapshot` → `portfolio` → `allocator` →
+`classifiers` → `risk_gate`. If the logs scroll away, failures and stale-data skips are also saved as rows
+in `decisions` (`Agent / cycle error`, `Stale market data (cycle skipped)`) and show on the ops-web
+`/decisions` page. A boot line (`[control-plane][boot]`) reports which credentials are present (booleans only).

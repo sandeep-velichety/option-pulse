@@ -56,6 +56,13 @@ function snapshotForPrompt(snapshot: MarketSnapshot): Record<string, unknown> {
 
 type Lesson = { ticker: string; classification: string; exit_reason: string; realized_pnl_usd: string; created_at: Date };
 
+export class AllocatorOutputError extends Error {
+  constructor(message: string, readonly cause_: unknown) {
+    super(message);
+    this.name = 'AllocatorOutputError';
+  }
+}
+
 export interface AllocatorCallResult {
   recommendation: StockRecommendation;
   agentRunRecord: AgentRunRecord;
@@ -111,14 +118,26 @@ export async function callAllocator(
 
   const raw = toolUse.input as Record<string, unknown>;
   const runId = crypto.randomUUID();
-  const recommendation = StockRecommendation.parse({
-    ...raw,
-    schema_version: 1,
-    run_id: runId,
-    input_hash: inputHash,
-    agent_version: AGENT_VERSION,
-    model: ANTHROPIC_MODEL,
-  });
+  let recommendation: StockRecommendation;
+  try {
+    recommendation = StockRecommendation.parse({
+      ...raw,
+      schema_version: 1,
+      run_id: runId,
+      input_hash: inputHash,
+      agent_version: AGENT_VERSION,
+      model: ANTHROPIC_MODEL,
+    });
+  } catch (err) {
+    // The model answered but the answer failed our contract (e.g. an abstain with an empty
+    // ticker). Keep what it actually said — otherwise this failure leaves no trace at all.
+    const issues = (err as { issues?: Array<{ path: unknown[]; message: string }> }).issues ?? [];
+    const summary = issues.slice(0, 6).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new AllocatorOutputError(
+      `allocator output failed validation (${assetClass}): ${summary || String(err)} | raw=${JSON.stringify(raw).slice(0, 1200)}`,
+      err,
+    );
+  }
 
   const usage = response.usage as {
     input_tokens: number;

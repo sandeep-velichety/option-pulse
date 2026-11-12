@@ -262,3 +262,36 @@ export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
     client.release();
   }
 }
+
+/**
+ * Persist a cycle that produced no council decision (stale data, or the cycle crashed) as a
+ * decisions row, so it is visible on the ops dashboard instead of only in ephemeral logs.
+ * Uses the existing verdicts 'stale_snapshot' / 'schema_failure' (ops-web labels the latter
+ * "Agent / cycle error"). Deduped: at most one row per (verdict, strategy) per `dedupeMinutes`,
+ * so a minute-level cron cannot flood the table. Never throws.
+ */
+export async function writeCycleNote(p: {
+  assetClass: 'stock' | 'crypto';
+  verdict: 'stale_snapshot' | 'schema_failure';
+  snapshotId: string;
+  reason: string;
+  dedupeMinutes: number;
+}): Promise<void> {
+  const strategyId = p.assetClass === 'crypto' ? CRYPTO_STRATEGY_ID : STRATEGY_ID;
+  try {
+    const dup = await pool.query(
+      `SELECT 1 FROM decisions
+        WHERE verdict = $1 AND strategy_id = $2 AND ticker = 'NONE'
+          AND created_at > now() - ($3 || ' minutes')::interval LIMIT 1`,
+      [p.verdict, strategyId, String(p.dedupeMinutes)],
+    );
+    if (dup.rows.length > 0) return;
+    await pool.query(
+      `INSERT INTO decisions (decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result)
+       VALUES ($1, $2, $3, 'NONE', $4, $5, NULL)`,
+      [crypto.randomUUID(), strategyId, p.snapshotId, p.verdict, p.reason.slice(0, 2000)],
+    );
+  } catch (err) {
+    console.error('[control-plane] writeCycleNote failed (non-fatal)', err);
+  }
+}

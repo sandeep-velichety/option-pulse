@@ -24,6 +24,22 @@ process.on('SIGTERM', async () => {
 
 async function main(): Promise<void> {
   console.log('[control-plane] boot');
+  console.log(
+    `[control-plane][boot] ${JSON.stringify({
+      run_once: process.env['RUN_ONCE'] === 'true',
+      run_mode: process.env['RUN_MODE'] ?? 'all',
+      node: process.version,
+      utc: new Date().toISOString(),
+      env_present: {
+        DATABASE_URL: Boolean(process.env['DATABASE_URL']),
+        PGPASSWORD: Boolean(process.env['PGPASSWORD']),
+        ANTHROPIC_API_KEY: Boolean(process.env['ANTHROPIC_API_KEY']),
+        WATCH_SYMBOLS: process.env['WATCH_SYMBOLS'] ?? null,
+      },
+      classifier_backend: process.env['USE_JEV'] === 'true' ? 'jev' : 'llm',
+      crypto_exit_dry_run: process.env['CRYPTO_EXIT_DRY_RUN'] !== 'false',
+    })}`,
+  );
 
   await initScheduler();
 
@@ -33,8 +49,15 @@ async function main(): Promise<void> {
   if (process.env['RUN_ONCE'] === 'true') {
     // RUN_MODE: 'stock' | 'crypto' | 'all' (default). Render runs one cron per mode.
     const mode = process.env['RUN_MODE'] ?? 'all';
-    if (mode === 'stock' || mode === 'all') await runCycle();
-    if (mode === 'crypto' || mode === 'all') await runCryptoCycle();
+    // Each cycle handles its own errors, but isolate them anyway: a stock failure must never
+    // stop the crypto cycle (RUN_MODE=all) or skip the clean shutdown below.
+    if (mode === 'stock' || mode === 'all') {
+      await runCycle().catch((err) => console.error('[control-plane][stock] unhandled', err));
+    }
+    if (mode === 'crypto' || mode === 'all') {
+      await runCryptoCycle().catch((err) => console.error('[control-plane][crypto] unhandled', err));
+    }
+    console.log('[control-plane][boot] run complete, exiting');
     await pool.end();
     return;
   }

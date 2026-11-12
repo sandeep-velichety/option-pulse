@@ -401,6 +401,19 @@ two implementations of the same interface.
 - Supavisor session-mode URL format: usernames must include the project ref suffix
   (`cp_user.PROJECT_REF`) — plain username fails with ENOIDENTIFIER at the pooler.
 
+**2026-11-12 (cont'd) — Traceable control-plane cycles.**
+
+No stock decision had ever been recorded and nothing explained why. Added `log.ts` (`clog`/`cerr`): every
+stock/crypto cycle now logs `start → snapshot → portfolio → allocator → classifiers → risk_gate` and one terminal
+`done`/`skip`/`error` line (with failing `stage`, error name, HTTP status, Zod issues). The Allocator now
+captures its raw output when schema validation fails (previously an abstain with an invalid field threw an error
+that left no trace — the leading hypothesis for zero stock decisions). Failed cycles and stale-data skips are
+persisted via `journal.writeCycleNote` as `decisions` rows (`schema_failure` / `stale_snapshot`, deduped) so they
+appear on ops-web `/decisions`. `RUN_ONCE` now isolates stock and crypto cycles so one cannot stop the other.
+Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run actually wrote two fake
+`schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
+(`decisions` is append-only for `cp_role`).
+
 **2026-11-12 — Incident review: why trading stopped, and the fixes.**
 
 Read the production database (read-only) after "no trades are happening". Findings, all confirmed in data:

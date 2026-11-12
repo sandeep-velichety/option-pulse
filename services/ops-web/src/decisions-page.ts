@@ -38,9 +38,9 @@ const VERDICT_LABEL: Record<string, string> = {
   abstain: 'Abstained',
   reject: 'Rejected by council',
   gate_rejected: 'Blocked by risk gate',
-  schema_failure: 'Agent output invalid',
+  schema_failure: 'Agent / cycle error',
   no_snapshot: 'No market data',
-  stale_snapshot: 'Stale market data',
+  stale_snapshot: 'Stale market data (cycle skipped)',
 };
 
 const VERDICT_COLOR: Record<string, string> = {

@@ -6,6 +6,7 @@ import { callAllocator, callAllocatorRevision } from './allocator.js';
 import { callAdversary, callRiskOfficer, classifierBackend } from './classifiers.js';
 import type { AdversaryResult, RiskOfficerResult } from './types.js';
 import { AGENT_VERSION } from './prompts.js';
+import { clog } from './log.js';
 import type { AgentRunRecord, SessionResult, PendingIntentData } from './types.js';
 
 export type Lesson = {
@@ -143,6 +144,15 @@ export async function runCouncil(
     recentLessons,
   );
   agentRunRecords.push(allocatorRun);
+  clog(assetClass, sessionRunId.slice(0, 8), 'allocator', {
+    abstain: recommendation.abstain,
+    ticker: recommendation.ticker,
+    direction: recommendation.direction,
+    conviction: recommendation.conviction,
+    est_edge_bps: recommendation.est_edge_bps,
+    cost_usd: allocatorRun.costUsd,
+    latency_ms: allocatorRun.latencyMs,
+  });
 
   if (recommendation.abstain || recommendation.direction === 'flat') {
     return {
@@ -202,6 +212,14 @@ export async function runCouncil(
       JSON.stringify({ notional: preSizing.notional_usd, portfolio: { drawdown, dailyPnlFraction } }),
     ),
   );
+
+  clog(assetClass, sessionRunId.slice(0, 8), 'classifiers', {
+    backend: classifierBackend(),
+    adversary_veto: adversaryResult.recommend_veto,
+    adversary_flaw: adversaryResult.flaw_category,
+    risk_veto: riskOfficerResult.recommend_veto,
+    risk_breach: riskOfficerResult.breach_type,
+  });
 
   // Step 3: codeVetoGate (pure function — no LLM)
   const gateVerdict = codeVetoGate(
@@ -273,6 +291,11 @@ export async function runCouncil(
     sleeveId,
   );
   const gateResult = riskGate(intentForGate, snapshot, portfolio);
+  clog(assetClass, sessionRunId.slice(0, 8), 'risk_gate', {
+    allow: gateResult.allow,
+    failed: gateResult.checks.filter((c) => !c.pass).map((c) => c.name),
+    notional_usd: finalSizing.notional_usd,
+  });
 
   if (!gateResult.allow) {
     return {

@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { runCouncil } from './council.js';
-import { writeJournal, ensureStrategy, ensureCryptoStrategy } from './journal.js';
+import { writeJournal, writeCycleNote, ensureStrategy, ensureCryptoStrategy } from './journal.js';
+import { clog, cerr, easternNow } from './log.js';
 import { parsePositionTickers } from './tickers.js';
 import { runCryptoExits } from './exits.js';
 import { sendAlert } from '@trading-council/alerts';
@@ -31,10 +32,12 @@ function isInTradingWindow(): boolean {
   return isWeekday && totalMinutes >= 9 * 60 + 30 && totalMinutes <= 10 * 60 + 30;
 }
 
-async function loadLatestSnapshot(): Promise<{
-  snapshotId: string;
-  snapshot: MarketSnapshot;
-} | null> {
+type StockSnapshotLoad =
+  | { kind: 'ok'; snapshotId: string; snapshot: MarketSnapshot; ageMin: number }
+  | { kind: 'none' }
+  | { kind: 'stale'; snapshotId: string; ageMin: number };
+
+async function loadLatestSnapshot(): Promise<StockSnapshotLoad> {
   const result = await pool.query<{
     snapshot_id: string;
     as_of: Date;
@@ -45,16 +48,19 @@ async function loadLatestSnapshot(): Promise<{
       )
       ORDER BY as_of DESC LIMIT 1`);
 
-  if (result.rows.length === 0) return null;
+  if (result.rows.length === 0) return { kind: 'none' };
   const row = result.rows[0]!;
   const ageMs = Date.now() - row.as_of.getTime();
+  const ageMin = Math.round(ageMs / 60000);
   if (ageMs > SNAPSHOT_STALENESS_MS && process.env['FORCE_CYCLE'] !== 'true') {
-    console.log(
-      `[control-plane] snapshot stale: age=${Math.round(ageMs / 60000)}min, skipping`,
-    );
-    return null;
+    return { kind: 'stale', snapshotId: row.snapshot_id, ageMin };
   }
-  return { snapshotId: row.snapshot_id, snapshot: row.snapshot as unknown as MarketSnapshot };
+  return {
+    kind: 'ok',
+    snapshotId: row.snapshot_id,
+    snapshot: row.snapshot as unknown as MarketSnapshot,
+    ageMin,
+  };
 }
 
 async function loadLatestCryptoSnapshot(): Promise<{
@@ -147,6 +153,9 @@ async function checkDailySpendCap(): Promise<boolean> {
      WHERE created_at > date_trunc('day', NOW() AT TIME ZONE 'America/New_York')`,
   );
   const spent = parseFloat(result.rows[0]?.total ?? '0');
+  console.log(
+    `[control-plane] spend_cap ${JSON.stringify({ spent_usd: +spent.toFixed(4), cap_usd: DAILY_SPEND_CAP_USD, ok: spent < DAILY_SPEND_CAP_USD })}`,
+  );
   if (spent >= DAILY_SPEND_CAP_USD) {
     console.log(
       `[control-plane] daily spend cap reached: $${spent.toFixed(4)} >= $${DAILY_SPEND_CAP_USD}`,
@@ -183,75 +192,166 @@ async function loadRecentLessons(assetClass: 'stock' | 'crypto'): Promise<Array<
 }
 
 export async function runCycle(): Promise<void> {
+  const cycleId = crypto.randomUUID().slice(0, 8);
   const force = process.env['FORCE_CYCLE'] === 'true';
-  if (!force && !isInTradingWindow()) {
-    console.log('[control-plane] outside trading window, skipping cycle');
+  const inWindow = isInTradingWindow();
+  clog('stock', cycleId, 'start', {
+    utc: new Date().toISOString(),
+    et: easternNow(),
+    window: 'Mon-Fri 09:30-10:30 ET',
+    in_window: inWindow,
+    force,
+    classifier_backend: process.env['USE_JEV'] === 'true' ? 'jev' : 'llm',
+  });
+
+  if (!force && !inWindow) {
+    clog('stock', cycleId, 'skip', { reason: 'outside_trading_window', et: easternNow() });
     return;
   }
 
-  const withinCap = await checkDailySpendCap();
-  if (!withinCap) return;
-
-  const snapshotData = await loadLatestSnapshot();
-  if (!snapshotData) {
-    console.log('[control-plane] no fresh snapshot, skipping cycle');
-    return;
-  }
-
-  const portfolio = await loadPortfolioState();
-  const recentLessons = await loadRecentLessons('stock');
-  const sessionRunId = crypto.randomUUID();
-  const decisionId = crypto.randomUUID();
-
-  console.log(
-    `[control-plane] cycle start: session=${sessionRunId} nav=${portfolio.currentNav.toFixed(2)}`,
-  );
-
+  // `stage` tells the error line exactly where a crash happened.
+  let stage = 'spend_cap';
+  let snapshotId: string | null = null;
   try {
+    const withinCap = await checkDailySpendCap();
+    if (!withinCap) {
+      clog('stock', cycleId, 'skip', { reason: 'daily_spend_cap_reached' });
+      return;
+    }
+
+    stage = 'load_snapshot';
+    const snap = await loadLatestSnapshot();
+    if (snap.kind === 'none') {
+      clog('stock', cycleId, 'skip', {
+        reason: 'no_stock_snapshot_in_db',
+        hint: 'execution has never written a stock snapshot — check execution logs / WATCH_SYMBOLS',
+      });
+      return;
+    }
+    snapshotId = snap.snapshotId;
+    if (snap.kind === 'stale') {
+      clog('stock', cycleId, 'skip', {
+        reason: 'stock_snapshot_stale',
+        age_min: snap.ageMin,
+        max_age_min: SNAPSHOT_STALENESS_MS / 60000,
+        snapshot_id: snap.snapshotId,
+      });
+      await writeCycleNote({
+        assetClass: 'stock',
+        verdict: 'stale_snapshot',
+        snapshotId: snap.snapshotId,
+        reason: `stock cycle skipped: latest stock snapshot was ${snap.ageMin} min old (limit ${SNAPSHOT_STALENESS_MS / 60000} min) — is the execution service running?`,
+        dedupeMinutes: 360,
+      });
+      return;
+    }
+    clog('stock', cycleId, 'snapshot', {
+      snapshot_id: snap.snapshotId,
+      age_min: snap.ageMin,
+      session: snap.snapshot.session,
+      symbols: Object.keys(snap.snapshot.symbols),
+      vix_available: snap.snapshot.regime.vix_stale_days < 999 && snap.snapshot.regime.vix > 0,
+    });
+
+    stage = 'load_portfolio';
+    const portfolio = await loadPortfolioState();
+    stage = 'load_lessons';
+    const recentLessons = await loadRecentLessons('stock');
+    clog('stock', cycleId, 'portfolio', {
+      nav: +portfolio.currentNav.toFixed(2),
+      halt_level: portfolio.haltLevel,
+      open_intents: portfolio.openIntentTickers,
+      held_positions: portfolio.openPositionTickers ?? [],
+      lessons: recentLessons.length,
+    });
+
+    const sessionRunId = crypto.randomUUID();
+    const decisionId = crypto.randomUUID();
+
+    stage = 'council';
     const result = await runCouncil(
-      snapshotData.snapshot,
+      snap.snapshot,
       portfolio,
       sessionRunId,
       decisionId,
       'stock',
       recentLessons,
     );
-    await writeJournal(result, snapshotData.snapshotId);
-    console.log(
-      `[control-plane] cycle done: verdict=${result.councilVerdictEnum} cost=$${result.agentRunRecords.reduce((s, r) => s + r.costUsd, 0).toFixed(5)}`,
-    );
+
+    stage = 'journal';
+    await writeJournal(result, snap.snapshotId);
+    clog('stock', cycleId, 'done', {
+      verdict: result.councilVerdictEnum,
+      reason: result.verdictReason,
+      ticker: result.recommendation?.ticker ?? null,
+      intent_written: result.pendingIntent !== null,
+      decision_id: decisionId,
+      cost_usd: +result.agentRunRecords.reduce((s2, r) => s2 + r.costUsd, 0).toFixed(5),
+    });
   } catch (err) {
-    console.error('[control-plane] cycle error', err);
+    cerr('stock', cycleId, stage, err);
+    if (snapshotId) {
+      await writeCycleNote({
+        assetClass: 'stock',
+        verdict: 'schema_failure',
+        snapshotId,
+        reason: `stock cycle failed at stage "${stage}": ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+        dedupeMinutes: 30,
+      });
+    }
   }
 }
 
 export async function runCryptoCycle(): Promise<void> {
-  const snapshotData = await loadLatestCryptoSnapshot();
-  if (!snapshotData) {
-    console.log('[control-plane] no fresh crypto snapshot, skipping cycle');
-    return;
-  }
+  const cycleId = crypto.randomUUID().slice(0, 8);
+  clog('crypto', cycleId, 'start', { utc: new Date().toISOString(), et: easternNow() });
 
-  // Exits first: deterministic, no LLM cost, so they run even when the spend cap is hit.
+  let stage = 'load_snapshot';
+  let snapshotId: string | null = null;
   try {
-    await runCryptoExits(snapshotData.snapshot, snapshotData.snapshotId);
-  } catch (err) {
-    console.error('[control-plane] crypto exits error (non-fatal)', err);
-  }
+    const snapshotData = await loadLatestCryptoSnapshot();
+    if (!snapshotData) {
+      clog('crypto', cycleId, 'skip', { reason: 'no_fresh_crypto_snapshot', max_age_min: 15 });
+      return;
+    }
+    snapshotId = snapshotData.snapshotId;
+    clog('crypto', cycleId, 'snapshot', {
+      snapshot_id: snapshotData.snapshotId,
+      symbols: Object.keys(snapshotData.snapshot.symbols),
+      vix_available:
+        snapshotData.snapshot.regime.vix_stale_days < 999 && snapshotData.snapshot.regime.vix > 0,
+    });
 
-  const withinCap = await checkDailySpendCap();
-  if (!withinCap) return;
+    // Exits first: deterministic, no LLM cost, so they run even when the spend cap is hit.
+    stage = 'exits';
+    try {
+      await runCryptoExits(snapshotData.snapshot, snapshotData.snapshotId);
+    } catch (err) {
+      cerr('crypto', cycleId, 'exits', err); // non-fatal: the council cycle still runs
+    }
 
-  const portfolio = await loadPortfolioState();
-  const recentLessons = await loadRecentLessons('crypto');
-  const sessionRunId = crypto.randomUUID();
-  const decisionId = crypto.randomUUID();
+    stage = 'spend_cap';
+    const withinCap = await checkDailySpendCap();
+    if (!withinCap) {
+      clog('crypto', cycleId, 'skip', { reason: 'daily_spend_cap_reached' });
+      return;
+    }
 
-  console.log(
-    `[control-plane] crypto cycle start: session=${sessionRunId} nav=${portfolio.currentNav.toFixed(2)}`,
-  );
+    stage = 'load_portfolio';
+    const portfolio = await loadPortfolioState();
+    const recentLessons = await loadRecentLessons('crypto');
+    clog('crypto', cycleId, 'portfolio', {
+      nav: +portfolio.currentNav.toFixed(2),
+      halt_level: portfolio.haltLevel,
+      open_intents: portfolio.openIntentTickers,
+      held_positions: portfolio.openPositionTickers ?? [],
+      lessons: recentLessons.length,
+    });
 
-  try {
+    const sessionRunId = crypto.randomUUID();
+    const decisionId = crypto.randomUUID();
+
+    stage = 'council';
     const result = await runCouncil(
       snapshotData.snapshot,
       portfolio,
@@ -260,12 +360,28 @@ export async function runCryptoCycle(): Promise<void> {
       'crypto',
       recentLessons,
     );
+
+    stage = 'journal';
     await writeJournal(result, snapshotData.snapshotId);
-    console.log(
-      `[control-plane] crypto cycle done: verdict=${result.councilVerdictEnum} cost=$${result.agentRunRecords.reduce((s, r) => s + r.costUsd, 0).toFixed(5)}`,
-    );
+    clog('crypto', cycleId, 'done', {
+      verdict: result.councilVerdictEnum,
+      reason: result.verdictReason,
+      ticker: result.recommendation?.ticker ?? null,
+      intent_written: result.pendingIntent !== null,
+      decision_id: decisionId,
+      cost_usd: +result.agentRunRecords.reduce((s2, r) => s2 + r.costUsd, 0).toFixed(5),
+    });
   } catch (err) {
-    console.error('[control-plane] crypto cycle error', err);
+    cerr('crypto', cycleId, stage, err);
+    if (snapshotId) {
+      await writeCycleNote({
+        assetClass: 'crypto',
+        verdict: 'schema_failure',
+        snapshotId,
+        reason: `crypto cycle failed at stage "${stage}": ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+        dedupeMinutes: 30,
+      });
+    }
   }
 }
 
