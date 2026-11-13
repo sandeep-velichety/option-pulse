@@ -414,6 +414,15 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-13 — `control-plane-crypto` cron failed: DATABASE_URL not set on that service.**
+
+Render log: `Error: [control-plane] DATABASE_URL is required` at `db.js` load, exit 1. Cause is configuration, not
+code: Blueprint secrets (`sync: false`) start empty on each newly created service and Render services do not share
+environment, so values entered on `control-plane` do not reach `control-plane-crypto`. Added `preflight.ts`
+(first import of `index.ts`) so a missing `DATABASE_URL`/`ANTHROPIC_API_KEY` is reported with the service name and
+where to set it, plus `explainBootError` (cause + fix for password/pooler-user/permission/host errors) and a
+`connected to database as <user>` boot line.
+
 **2026-11-12 — Incident review: why trading stopped, and the fixes.**
 
 Read the production database (read-only) after "no trades are happening". Findings, all confirmed in data:

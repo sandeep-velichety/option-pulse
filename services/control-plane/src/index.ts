@@ -12,9 +12,11 @@ if (process.env['ALPACA_KEY'] || process.env['ALPACA_SECRET']) {
   );
 }
 
+import './preflight.js';
 import cron from 'node-cron';
 import { pool } from './db.js';
 import { initScheduler, runCycle, runCryptoCycle } from './scheduler.js';
+import { explainBootError } from './log.js';
 
 process.on('SIGTERM', async () => {
   console.log('[control-plane] SIGTERM received, shutting down');
@@ -32,6 +34,7 @@ async function main(): Promise<void> {
       utc: new Date().toISOString(),
       env_present: {
         DATABASE_URL: Boolean(process.env['DATABASE_URL']),
+        DATABASE_URL_has_password: (() => { try { return new URL(process.env['DATABASE_URL'] ?? '').password !== ''; } catch { return false; } })(),
         PGPASSWORD: Boolean(process.env['PGPASSWORD']),
         ANTHROPIC_API_KEY: Boolean(process.env['ANTHROPIC_API_KEY']),
         WATCH_SYMBOLS: process.env['WATCH_SYMBOLS'] ?? null,
@@ -40,6 +43,9 @@ async function main(): Promise<void> {
       crypto_exit_dry_run: process.env['CRYPTO_EXIT_DRY_RUN'] !== 'false',
     })}`,
   );
+
+  const who = await pool.query<{ u: string }>('SELECT current_user AS u');
+  console.log(`[control-plane][boot] connected to database as ${who.rows[0]?.u}`);
 
   await initScheduler();
 
@@ -78,5 +84,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('[control-plane] fatal boot error', err);
+  console.error(`[control-plane][boot] DIAGNOSIS: ${explainBootError(err)}`);
   process.exit(1);
 });
