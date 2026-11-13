@@ -9,10 +9,16 @@ import { z } from "zod";
 const Evidence = z.object({
   claim: z.string(),
   source: z.string(), // must reference a MarketSnapshot path, e.g. "symbols.AAPL.iv_rank"
-  value: z.preprocess(
-    (v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v),
-    z.union([z.string(), z.number()]),
-  ),
+  // `value` is documentation for the human reading the journal, not a decision input, so be
+  // tolerant of whatever shape the model cites. An "absent" field (e.g. no macro data) arrives
+  // as null; objects/arrays are common ({last, ma20, ma50}). Rejecting these made the model's
+  // correct ABSTAIN fail validation, which crashed the cycle and left no decision row.
+  value: z.preprocess((v) => {
+    if (v === null || v === undefined) return 'unavailable';
+    if (typeof v === 'object') return JSON.stringify(v);
+    if (typeof v === 'boolean') return String(v);
+    return v;
+  }, z.union([z.string(), z.number()])),
 });
 
 export const BetClass = z.enum(["core", "asymmetric"]);

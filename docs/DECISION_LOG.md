@@ -414,6 +414,18 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-13 — ROOT CAUSE of "no stock decisions / no abstains": evidence.value validation.**
+
+The new cycle logging captured it on the first real run: `AllocatorOutputError ... evidence.4.value: Invalid input`.
+The Allocator was ABSTAINING correctly (BTC/ETH in downtrends, weak volume) but cited an absent field with
+`"value": null`; `Evidence.value` only accepted string|number (objects were already stringified). The Zod failure threw
+inside the cycle before any journal write, so every abstain crashed silently — which is why the database has zero
+`abstain` rows and zero stock decisions in five weeks (the market was mostly "nothing to do"). Fixed in
+`packages/contracts/src/recommendation.ts`: null/undefined → `"unavailable"`, booleans → strings (evidence.value is
+documentation, not a decision input). Numeric bounds (conviction 0–1, etc.) are unchanged and still enforced; 6 new
+contract tests. Lesson: a validation error on the Allocator's *abstain* path is invisible without logging — the
+raw-output capture added the day before is what exposed it.
+
 **2026-11-13 — `control-plane-crypto` cron failed: DATABASE_URL not set on that service.**
 
 Render log: `Error: [control-plane] DATABASE_URL is required` at `db.js` load, exit 1. Cause is configuration, not
