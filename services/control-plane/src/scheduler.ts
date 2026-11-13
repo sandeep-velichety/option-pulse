@@ -245,11 +245,21 @@ export async function runCycle(): Promise<void> {
       });
       return;
     }
+    const priced = Object.entries(snap.snapshot.symbols).filter(([, v]) => v.last > 0).map(([k]) => k);
+    if (priced.length === 0) {
+      clog('stock', cycleId, 'skip', {
+        reason: 'stock_snapshot_has_no_prices',
+        snapshot_id: snap.snapshotId,
+        hint: 'every symbol has last=0 — execution wrote the snapshot before data was available, or bar fetch is failing (see execution logs)',
+      });
+      return;
+    }
     clog('stock', cycleId, 'snapshot', {
       snapshot_id: snap.snapshotId,
       age_min: snap.ageMin,
       session: snap.snapshot.session,
       symbols: Object.keys(snap.snapshot.symbols),
+      priced_symbols: priced.length,
       vix_available: snap.snapshot.regime.vix_stale_days < 999 && snap.snapshot.regime.vix > 0,
     });
 

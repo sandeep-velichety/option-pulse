@@ -103,7 +103,9 @@ export async function writeJournal(
     }
 
     // 2. Insert decisions (creates the row the deferred FK will resolve against)
-    const decisionStrategyId = result.pendingIntent?.strategy_id ?? STRATEGY_ID;
+    // Crypto tickers contain '/'. Previously every intent-less decision (all abstains) was labelled stock.
+    const decisionStrategyId =
+      result.pendingIntent?.strategy_id ?? (ticker.includes('/') ? CRYPTO_STRATEGY_ID : STRATEGY_ID);
     await client.query(
       `INSERT INTO decisions (
          decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result
@@ -124,7 +126,7 @@ export async function writeJournal(
       const intent = result.pendingIntent;
       const tradeDate = etTodayISO();
       const clientOrderId = deterministicClientOrderId(
-        STRATEGY_ID,
+        intent.strategy_id,
         intent.ticker,
         intent.side,
         tradeDate,
@@ -152,8 +154,8 @@ export async function writeJournal(
           'day',
           JSON.stringify(intent.bracket),
           intent.bet_class,
-          SLEEVE_ID,
-          STRATEGY_ID,
+          intent.sleeve_id,
+          intent.strategy_id,
           JSON.stringify(intent.sizing),
           expiresAt,
           'pending',

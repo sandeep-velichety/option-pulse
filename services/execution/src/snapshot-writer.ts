@@ -255,13 +255,20 @@ export async function writeSnapshot(): Promise<void> {
 
   for (const symbol of symbols) {
     try {
+      // `start` is REQUIRED: without it Alpaca defaults to "from the start of today", so before
+      // the open there are zero bars (last=0) and afterwards a single partial bar — never enough
+      // for ma20/ma50/ATR/vol. (Stock snapshots had no technicals at all until this was fixed.)
+      // ~420 calendar days ≈ 290 trading days, enough for the 200-day MA. No `limit`: with the
+      // default ascending sort a limit would return the OLDEST bars and drop the latest ones.
       const rawBars = await alpaca.data.getStockBarsFor(symbol, {
         timeframe: TimeFrame.Day,
-        limit: 210,
+        start: new Date(Date.now() - 420 * 24 * 60 * 60 * 1000),
       });
 
-      // Sort ascending by timestamp
+      // Sort ascending by timestamp, keep the most recent 210
       rawBars.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      if (rawBars.length > 210) rawBars.splice(0, rawBars.length - 210);
+      if (rawBars.length === 0) throw new Error(`no bars returned for ${symbol}`);
 
       // Map Alpaca Bar -> contracts Bar shape
       const bars: Bar[] = rawBars.map((b) => ({
@@ -278,6 +285,7 @@ export async function writeSnapshot(): Promise<void> {
 
       const last = closes[closes.length - 1] ?? 0;
       const prevClose = closes[closes.length - 2] ?? last;
+      if (!(last > 0)) throw new Error(`non-positive last price for ${symbol}`); // never write a zero price
 
       const asset = await alpaca.trading.assets.getV2AssetsSymbolOrAssetId({
         symbolOrAssetId: symbol,

@@ -1,0 +1,8 @@
+# NOTE: torch is installed separately in the Dockerfile with the CPU-only index URL.
+# Listed here for reference only — do not pip install -r requirements.txt directly
+# or it will pull the 2GB CUDA wheel.
+torch==2.2.0
+timesfm[torch]==1.2.7
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+numpy>=1.24.0,<2.0.0

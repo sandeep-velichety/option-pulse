@@ -414,6 +414,21 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-13 (evening) — First healthy day; found why stock snapshots were empty.**
+
+After the evidence.value fix, 13 council decisions landed in one day (12 crypto abstains every 2h + the first-ever
+stock decision, SPY at 14:31 UTC), $0.24 total spend, no trades — correct in a broad selloff (BTC ~11% under its
+MA200, volume z ≈ 10σ = distribution). The stock decision was an abstain on *bad data*, not on the market: the
+14:30:02 snapshot had `last=0` everywhere, and stock snapshots never had technicals (ma20/atr/vol all null).
+Cause: `getStockBarsFor` was called with `limit: 210` and no `start`; Alpaca then defaults to "since the start of
+today" → zero bars before the open, one partial bar after. Fixed: `start = now − 420d`, no `limit` (ascending sort
++ limit would return the oldest bars), keep the latest 210; verified live (1 bar → 290 bars). A symbol with no
+bars or a non-positive price is now recorded as *missing* rather than written as 0, and control-plane skips a stock
+snapshot with no priced symbols (`stock_snapshot_has_no_prices`). Also: crypto abstains/intents were labelled
+`default-stock-v1`; journal now uses the intent's own strategy/sleeve, and the crypto strategy for intent-less
+crypto decisions. Still open: `FRED_API_KEY` unset (vix=0), migration 002 not applied (`post_mortems` absent),
+`CRYPTO_EXIT_DRY_RUN` still true (BTC −$961, ETH −$128 unrealized).
+
 **2026-11-13 — ROOT CAUSE of "no stock decisions / no abstains": evidence.value validation.**
 
 The new cycle logging captured it on the first real run: `AllocatorOutputError ... evidence.4.value: Invalid input`.
