@@ -414,6 +414,27 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-14 — Cost-averaging position manager for crypto (user request), with review fixes.**
+
+Request: "employ averaging to get out of bad positions" — refined to: do NOT always buy the low; average only when it
+makes sense, and sell at the *lowered* average cost (below the original entry) for a reduced loss or a profit.
+Built `packages/sizer/src/averaging.ts` (`managePosition`: hold/add/exit, pure, 27 tests) and wired it into
+`control-plane/src/exits.ts`; adds/exits are trade_intents executed by execution (control-plane still holds no
+Alpaca credentials). Adds need: ≥7% discount to the last add/avg cost, today's drop <3%, not a high-volume (z≥3)
+down day, ≥1% bounce off the 7-day low, post-add break-even within 12% of price, and risk limits (halt, drawdown,
+daily loss, ≤5% NAV cost cap, ≤2 adds) — otherwise HOLD with every blocker logged. Exits: recovery, loss-reduction
+(stalled recovery), take-profit, 45-day time exit when losing. Ladder state is reconstructed from submitted buy
+intents since the last sell (cp_role cannot read fills); post-mortems map the new exit reasons.
+Flags default SAFE: `CRYPTO_AVERAGING_DRY_RUN=true`, `CRYPTO_EXIT_DRY_RUN=true` (nothing trades until flipped);
+`CRYPTO_AVERAGING_ENABLED=false` restores the old fixed stop. On real data (2026-11-13 close) it declines to
+average ETH/BTC: selloff −4.4%/day, volume z 5–10σ, new 7-day lows (and BTC is over the cost cap).
+Adversarial review (3 reviewers + skeptics, 11 raised, 3 confirmed) found: (1) **averaging mode had dropped the
+price stop** — only a 3%-of-NAV stop and a ladder-exhausted stop remained, so a small or un-averageable position
+could fall ~50–100% before the 45-day clock; fixed with a price stop 20% below the last add/avg cost (10% once the
+ladder is used up), independent of NAV and adds; (2) a `submitted` intent blocked management of its ticker for the
+full 8h expiry (including stops right after an add); now blocks only 15 minutes; (3) docs/render.yaml lacked the new
+flags. Note: BTC (−18.5% vs avg) sits ~2% above the new −20% stop.
+
 **2026-11-13 (evening) — First healthy day; found why stock snapshots were empty.**
 
 After the evidence.value fix, 13 council decisions landed in one day (12 crypto abstains every 2h + the first-ever

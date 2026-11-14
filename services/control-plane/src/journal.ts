@@ -178,39 +178,53 @@ export async function writeJournal(
   }
 }
 
-export interface ExitIntentParams {
+export interface ManagedIntentParams {
   ticker: string;
+  /** Units to trade. For a buy this is notional / last. */
   qty: number;
   lastPrice: number;
   navUsd: number;
   snapshotId: string;
-  /** 'stop_loss' | 'take_profit' | 'time_exit' */
+  /** exit: 'stop_loss' | 'take_profit' | 'time_exit' | 'recovery' | 'loss_reduction'; add: 'averaging_add' */
   reason: string;
   detail: string;
 }
 
 /**
- * Journal a deterministic exit: one decision row (verdict 'approve', reason "exit:<reason> ...")
- * plus a 'sell' trade intent that flows through the normal claim → submit → fill pipeline.
- * The control-plane never touches Alpaca; execution places the order.
+ * Journal a deterministic position-management action: one decision row (verdict 'approve') plus
+ * a trade intent that flows through the normal claim -> submit -> fill pipeline. The control-plane
+ * never touches Alpaca; execution places the order.
  *
- * The exit reason is also stored in bracket.exit_reason because exec_role cannot read
- * `decisions` but must know why a sell fill happened (post-mortems). The TradeIntent zod
- * schema ignores unknown bracket keys, and bracket prices are placeholders (crypto sells
- * are plain market orders).
+ *   side 'sell' = exit.  bracket.exit_reason carries why, because exec_role cannot read
+ *                 `decisions` but must know it for post-mortems.
+ *   side 'buy'  = cost-averaging add. bracket.averaging_add / add_ref_price let the next cycle
+ *                 count tranches and space the next add from this price.
+ *
+ * The TradeIntent zod schema ignores unknown bracket keys; bracket prices are placeholders
+ * (crypto orders are plain market orders).
  */
-export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
+async function writeManagedIntent(side: 'buy' | 'sell', p: ManagedIntentParams): Promise<string> {
   const decisionId = crypto.randomUUID();
   const intentId = crypto.randomUUID();
   const clientOrderId = deterministicClientOrderId(
     CRYPTO_STRATEGY_ID,
     p.ticker,
-    'sell',
+    side,
     etTodayISO(),
     decisionId,
   );
   const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
   const notional = Math.max(p.qty * p.lastPrice, 0.01);
+  const isAdd = side === 'buy';
+  const bracket = isAdd
+    ? {
+        take_profit_price: p.lastPrice * 1.2,
+        stop_loss_price: p.lastPrice * 0.9,
+        averaging_add: true,
+        add_ref_price: p.lastPrice,
+      }
+    : { take_profit_price: p.lastPrice, stop_loss_price: p.lastPrice, exit_reason: p.reason };
+  const kelly = isAdd && p.navUsd > 0 ? Math.min(notional / p.navUsd, 0.05) : 0;
 
   const client = await pool.connect();
   try {
@@ -218,27 +232,30 @@ export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
     await client.query(
       `INSERT INTO decisions (decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result)
        VALUES ($1, $2, $3, $4, 'approve', $5, NULL)`,
-      [decisionId, CRYPTO_STRATEGY_ID, p.snapshotId, p.ticker, `exit:${p.reason} — ${p.detail}`],
+      [
+        decisionId,
+        CRYPTO_STRATEGY_ID,
+        p.snapshotId,
+        p.ticker,
+        `${isAdd ? 'averaging:add' : `exit:${p.reason}`} — ${p.detail}`,
+      ],
     );
     await client.query(
       `INSERT INTO trade_intents (
          intent_id, run_id, decision_id, client_order_id, ticker, side, qty,
          notional_usd, order_type, limit_price, time_in_force, bracket,
          bet_class, sleeve_id, strategy_id, sizing, expires_at, status, schema_version
-       ) VALUES ($1,$2,$3,$4,$5,'sell',$6,$7,'market',NULL,'day',$8,'core',$9,$10,$11,$12,'pending',1)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'market',NULL,'day',$9,'core',$10,$11,$12,$13,'pending',1)`,
       [
         intentId,
         crypto.randomUUID(),
         decisionId,
         clientOrderId,
         p.ticker,
+        side,
         p.qty.toFixed(8),
         notional.toFixed(2),
-        JSON.stringify({
-          take_profit_price: p.lastPrice,
-          stop_loss_price: p.lastPrice,
-          exit_reason: p.reason,
-        }),
+        JSON.stringify(bracket),
         CRYPTO_SLEEVE_ID,
         CRYPTO_STRATEGY_ID,
         JSON.stringify({
@@ -246,7 +263,7 @@ export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
           edge: 0,
           variance: 0,
           kelly_f_raw: null,
-          kelly_f_capped: 0,
+          kelly_f_capped: kelly,
           cap_applied: 'none',
         }),
         expiresAt,
@@ -254,7 +271,7 @@ export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
     );
     await client.query('COMMIT');
     console.log(
-      `[control-plane] exit intent written: ${p.ticker} sell qty=${p.qty} reason=${p.reason} decision=${decisionId}`,
+      `[control-plane] ${isAdd ? 'averaging add' : 'exit'} intent written: ${p.ticker} ${side} qty=${p.qty} reason=${p.reason} decision=${decisionId}`,
     );
     return decisionId;
   } catch (err) {
@@ -264,6 +281,9 @@ export async function writeExitIntent(p: ExitIntentParams): Promise<string> {
     client.release();
   }
 }
+
+export const writeExitIntent = (p: ManagedIntentParams): Promise<string> => writeManagedIntent('sell', p);
+export const writeAddIntent = (p: ManagedIntentParams): Promise<string> => writeManagedIntent('buy', p);
 
 /**
  * Persist a cycle that produced no council decision (stale data, or the cycle crashed) as a

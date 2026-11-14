@@ -89,12 +89,28 @@ top of each `services/*/src/index.ts` throw at boot.
 2. **Set `FRED_API_KEY` on `execution`** (free key at fred.stlouisfed.org → My Account → API Keys).
    Without it every snapshot carries `vix=0, vix_stale_days=999`; the council now reads that as "VIX
    unavailable" rather than a risk signal, but you want the real value.
-3. **Crypto exits.** Alpaca paper cannot attach stop-loss/take-profit to crypto, so `control-plane-crypto`
-   closes crypto positions itself (stop-loss 5–15% below entry, take-profit 10–40% above, or time exit
-   at thesis horizon + 1 day). It ships in **dry-run**: look for `[exits][DRY RUN] would SELL …` in the
-   `control-plane-crypto` logs, and when you are happy set `CRYPTO_EXIT_DRY_RUN=false` on that service.
-   Until you do, held crypto tickers stay blocked (one position per ticker) and nothing new trades in
-   them. Set `CRYPTO_EXITS_ENABLED=false` to turn the whole thing off.
+3. **Crypto position management (stops, targets and cost averaging).** Alpaca paper cannot attach
+   stop-loss/take-profit to crypto, so `control-plane-crypto` manages crypto positions itself, every 2 hours,
+   at no LLM cost. Everything ships in **dry-run** — look for `[exits]` / `[exits][DRY RUN]` lines in that
+   service's logs.
+
+   | Variable (on `control-plane-crypto`) | Default | Meaning |
+   |---|---|---|
+   | `CRYPTO_AVERAGING_ENABLED` | `true` | `true`: averaging position manager. `false`: plain fixed stop (5–15% below entry) / take-profit / time exit. |
+   | `CRYPTO_AVERAGING_DRY_RUN` | `true` | `false` lets it actually **buy** averaging tranches. |
+   | `CRYPTO_EXIT_DRY_RUN` | `true` | `false` lets it actually **sell** (stops, targets, recovery exits). |
+   | `CRYPTO_EXITS_ENABLED` | `true` | `false` switches all of it off. |
+
+   **How averaging works.** It never buys just because price fell. A 1%-of-NAV tranche (max 2 per position) is
+   added only when price is ≥7% below the last add (or average cost), today's drop is under 3%, it is not a
+   high-volume down day, price has bounced ≥1% off its 7-day low, the new average is within 12% of price, and
+   risk limits allow (halt < 2, drawdown < 10%, daily loss < 2%, position cost ≤ 5% of NAV). Otherwise it holds
+   and logs the blockers.
+   **Exits target the lowered average cost**, so it can sell below the original entry: *recovery* (≥ +0.5% over
+   the lowered average after an add), *loss reduction* (≥10 days after the last add with price within 3% of the
+   average), *take profit* (+10–40%). Bounds: price stop 20% below the last add (10% once both adds are used),
+   unrealised loss ≥ 3% of NAV, time exit after 45 days if losing (thesis horizon + 1 day if winning).
+   While a position is held, council buys in that ticker stay blocked (one position per ticker).
 
 ---
 

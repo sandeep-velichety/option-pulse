@@ -6,7 +6,7 @@ import { sendAlert, fmtUsd } from '@trading-council/alerts';
 import { writePostMortem } from './post-mortem-writer.js';
 
 /** exit_reason values the control-plane writes into trade_intents.bracket for exit intents. */
-const EXIT_REASONS = new Set(['stop_loss', 'take_profit', 'time_exit']);
+const EXIT_REASONS = new Set(['stop_loss', 'take_profit', 'time_exit', 'recovery', 'loss_reduction']);
 
 async function recordExitPostMortem(
   clientOrderId: string,
@@ -61,7 +61,7 @@ async function recordExitPostMortem(
       entryPrice,
       exitPrice,
       qty,
-      exitReason: reason as 'stop_loss' | 'take_profit' | 'time_exit',
+      exitReason: reason as 'stop_loss' | 'take_profit' | 'time_exit' | 'recovery' | 'loss_reduction',
     });
   } catch (err) {
     console.error('[execution] fill-writer: post-mortem lookup failed (non-fatal)', err);

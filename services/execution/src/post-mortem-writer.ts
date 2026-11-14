@@ -7,7 +7,7 @@ export interface PostMortemInput {
   entryPrice: number;
   exitPrice: number;
   qty: number;
-  exitReason: 'stop_loss' | 'take_profit' | 'time_exit';
+  exitReason: 'stop_loss' | 'take_profit' | 'time_exit' | 'recovery' | 'loss_reduction';
 }
 
 /**
@@ -18,13 +18,33 @@ export interface PostMortemInput {
 export async function writePostMortem(i: PostMortemInput): Promise<void> {
   try {
     // post_mortems.exit_reason CHECK allows: take_profit | stop_loss | expired | manual
-    const exitReason = i.exitReason === 'time_exit' ? 'expired' : i.exitReason;
-    const classification =
-      i.exitReason === 'take_profit'
-        ? 'thesis_right'
-        : i.exitReason === 'stop_loss'
-          ? 'thesis_wrong'
-          : 'resolution_mismatch'; // closed on the clock, not on the thesis
+    // post_mortems.classification CHECK allows: thesis_right | thesis_wrong | execution_bug |
+    //                                           lucky_win | resolution_mismatch
+    const realizedForClass = (i.exitPrice - i.entryPrice) * i.qty;
+    let exitReason: 'take_profit' | 'stop_loss' | 'expired' | 'manual';
+    let classification: 'thesis_right' | 'thesis_wrong' | 'lucky_win' | 'resolution_mismatch';
+    switch (i.exitReason) {
+      case 'take_profit':
+        exitReason = 'take_profit';
+        classification = 'thesis_right';
+        break;
+      case 'stop_loss':
+        exitReason = 'stop_loss';
+        classification = 'thesis_wrong';
+        break;
+      case 'time_exit':
+        exitReason = 'expired';
+        classification = 'resolution_mismatch'; // closed on the clock, not on the thesis
+        break;
+      case 'recovery': // closed after cost-averaging pulled break-even down
+        exitReason = 'manual';
+        classification = realizedForClass >= 0 ? 'lucky_win' : 'resolution_mismatch';
+        break;
+      case 'loss_reduction': // stalled recovery: closed to cut the loss
+        exitReason = 'manual';
+        classification = 'resolution_mismatch';
+        break;
+    }
     const realizedPnl = (i.exitPrice - i.entryPrice) * i.qty; // long-only
 
     await pool.query(

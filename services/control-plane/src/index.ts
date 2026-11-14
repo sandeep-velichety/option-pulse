@@ -41,6 +41,8 @@ async function main(): Promise<void> {
       },
       classifier_backend: process.env['USE_JEV'] === 'true' ? 'jev' : 'llm',
       crypto_exit_dry_run: process.env['CRYPTO_EXIT_DRY_RUN'] !== 'false',
+      crypto_averaging_enabled: process.env['CRYPTO_AVERAGING_ENABLED'] !== 'false',
+      crypto_averaging_dry_run: process.env['CRYPTO_AVERAGING_DRY_RUN'] !== 'false',
     })}`,
   );
 

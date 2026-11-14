@@ -79,6 +79,13 @@ services:
       # "[exits][DRY RUN]" log lines, then set this to "false" to go live.
       - key: CRYPTO_EXIT_DRY_RUN
         value: "true"
+      # Cost averaging for losing crypto positions: adds a 1%-NAV tranche (max 2) only when the
+      # sell-off has stabilised; exits at the lowered average cost. DRY RUN = log only.
+      # Set CRYPTO_AVERAGING_ENABLED=false to fall back to the plain fixed stop / take-profit.
+      - key: CRYPTO_AVERAGING_ENABLED
+        value: "true"
+      - key: CRYPTO_AVERAGING_DRY_RUN
+        value: "true"
       - key: NODE_ENV
         value: production
       - key: APP_MODE
