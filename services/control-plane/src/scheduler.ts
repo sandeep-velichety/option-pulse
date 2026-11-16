@@ -3,6 +3,8 @@ import { pool } from './db.js';
 import { runCouncil } from './council.js';
 import { writeJournal, writeCycleNote, ensureStrategy, ensureCryptoStrategy } from './journal.js';
 import { clog, cerr, easternNow } from './log.js';
+import { isAuthFailure } from './errors.js';
+import { reportAnthropicAuthFailure } from './auth-alert.js';
 import { parsePositionTickers } from './tickers.js';
 import { runCryptoExits } from './exits.js';
 import { sendAlert } from '@trading-council/alerts';
@@ -191,21 +193,6 @@ async function loadRecentLessons(assetClass: 'stock' | 'crypto'): Promise<Array<
   }
 }
 
-function isAuthFailure(err: unknown): boolean {
-  const status = (err as { status?: unknown }).status;
-  return status === 401 || status === 403;
-}
-
-async function alertCouncilDown(scope: string, err: unknown): Promise<void> {
-  await sendAlert(
-    'Council DOWN: Anthropic API key rejected',
-    `The ${scope} council cycle failed authentication with Anthropic (HTTP ${(err as { status?: unknown }).status}). ` +
-      `No trading decisions are being made until this is fixed.\n\n` +
-      `Fix: create a new key at platform.claude.com -> Settings -> API keys, then set ANTHROPIC_API_KEY on BOTH ` +
-      `control-plane and control-plane-crypto in Render (services do not share environment variables).`,
-  ).catch(() => {});
-}
-
 export async function runCycle(): Promise<void> {
   const cycleId = crypto.randomUUID().slice(0, 8);
   const force = process.env['FORCE_CYCLE'] === 'true';
@@ -315,18 +302,17 @@ export async function runCycle(): Promise<void> {
     });
   } catch (err) {
     cerr('stock', cycleId, stage, err);
-    if (snapshotId) {
-      // 401/403 = the Anthropic key was rejected: the whole council is down, not one cycle. Record
-      // it once per 12h and send an alert, so a revoked/rotated key is noticed in hours, not days.
-      const authFailure = isAuthFailure(err);
-      const written = await writeCycleNote({
+    if (isAuthFailure(err)) {
+      // The whole council is down, not one cycle: alert immediately and fail the run.
+      await reportAnthropicAuthFailure('stock', err);
+    } else if (snapshotId) {
+      await writeCycleNote({
         assetClass: 'stock',
         verdict: 'schema_failure',
         snapshotId,
         reason: `stock cycle failed at stage "${stage}": ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
-        dedupeMinutes: authFailure ? 720 : 30,
+        dedupeMinutes: 30,
       });
-      if (authFailure && written) await alertCouncilDown('stock', err);
     }
   }
 }
@@ -402,18 +388,17 @@ export async function runCryptoCycle(): Promise<void> {
     });
   } catch (err) {
     cerr('crypto', cycleId, stage, err);
-    if (snapshotId) {
-      // 401/403 = the Anthropic key was rejected: the whole council is down, not one cycle. Record
-      // it once per 12h and send an alert, so a revoked/rotated key is noticed in hours, not days.
-      const authFailure = isAuthFailure(err);
-      const written = await writeCycleNote({
+    if (isAuthFailure(err)) {
+      // The whole council is down, not one cycle: alert immediately and fail the run.
+      await reportAnthropicAuthFailure('crypto', err);
+    } else if (snapshotId) {
+      await writeCycleNote({
         assetClass: 'crypto',
         verdict: 'schema_failure',
         snapshotId,
         reason: `crypto cycle failed at stage "${stage}": ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
-        dedupeMinutes: authFailure ? 720 : 30,
+        dedupeMinutes: 30,
       });
-      if (authFailure && written) await alertCouncilDown('crypto', err);
     }
   }
 }

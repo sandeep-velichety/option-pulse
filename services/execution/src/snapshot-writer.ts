@@ -3,6 +3,7 @@ import { TimeFrame } from '@alpacahq/alpaca-trade-api';
 import { MarketSnapshot } from '@trading-council/contracts';
 import type { MacroContext } from '@trading-council/contracts';
 import { alpaca } from './alpaca.js';
+import { reportIfAlpacaAuth } from './alpaca-auth.js';
 import { pool } from './db.js';
 import {
   ma,
@@ -206,6 +207,7 @@ export async function writeCryptoSnapshot(): Promise<void> {
       };
     } catch (err) {
       console.error(`[execution] crypto snapshot error for ${symbol}`, err);
+      reportIfAlpacaAuth('market data', err);
       missing.push(symbol);
     }
   }
@@ -312,6 +314,7 @@ export async function writeSnapshot(): Promise<void> {
       };
     } catch (err) {
       console.error(`[execution] snapshot error for ${symbol}`, err);
+      reportIfAlpacaAuth('market data', err);
       missing.push(symbol);
     }
   }

@@ -17,6 +17,7 @@ import cron from 'node-cron';
 import { pool } from './db.js';
 import { initScheduler, runCycle, runCryptoCycle } from './scheduler.js';
 import { explainBootError } from './log.js';
+import { probeAnthropic, reportAnthropicAuthFailure, councilAuthFailed } from './auth-alert.js';
 
 process.on('SIGTERM', async () => {
   console.log('[control-plane] SIGTERM received, shutting down');
@@ -49,6 +50,17 @@ async function main(): Promise<void> {
   const who = await pool.query<{ u: string }>('SELECT current_user AS u');
   console.log(`[control-plane][boot] connected to database as ${who.rows[0]?.u}`);
 
+  // Verify the Anthropic key before doing anything else (free call). A rejected key is reported
+  // immediately. We still run the cycles: crypto stops/exits need no LLM and must keep working.
+  const probe = await probeAnthropic();
+  if (probe.ok) {
+    console.log('[control-plane][boot] anthropic key ok');
+  } else if (probe.authFailure) {
+    await reportAnthropicAuthFailure(process.env['RUN_MODE'] ?? 'all', probe.error);
+  } else {
+    console.warn('[control-plane][boot] anthropic probe inconclusive (network/server error) — continuing', probe.error);
+  }
+
   await initScheduler();
 
   // Run once immediately for dev/smoke test convenience, then on cron.
@@ -67,6 +79,9 @@ async function main(): Promise<void> {
     }
     console.log('[control-plane][boot] run complete, exiting');
     await pool.end();
+    // A rejected key means every decision failed. Exit non-zero so Render marks this cron run
+    // FAILED (and notifies) instead of showing a green run for a dead council.
+    if (councilAuthFailed()) process.exitCode = 1;
     return;
   }
 

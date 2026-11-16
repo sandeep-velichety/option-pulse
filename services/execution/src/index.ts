@@ -29,6 +29,7 @@ for (const varName of requiredVars) {
 }
 
 import cron from 'node-cron';
+import { reportIfAlpacaAuth } from './alpaca-auth.js';
 import { pool } from './db.js';
 import { claimAndSubmit } from './claim-loop.js';
 import { writeSnapshot, writeCryptoSnapshot } from './snapshot-writer.js';
@@ -42,6 +43,7 @@ startTradeStream();
 const claimInterval = setInterval(() => {
   claimAndSubmit().catch((err) => {
     console.error('[execution] claim-loop uncaught error', err);
+    reportIfAlpacaAuth('claim-loop', err);
   });
 }, 2_000);
 
@@ -51,6 +53,7 @@ cron.schedule(
   () => {
     writeSnapshot().catch((err) => {
       console.error('[execution] snapshot-writer cron error', err);
+    reportIfAlpacaAuth('snapshot-writer', err);
     });
   },
   { timezone: 'America/New_York' },
@@ -59,18 +62,21 @@ cron.schedule(
 // Run snapshot once on boot
 writeSnapshot().catch((err) => {
   console.error('[execution] snapshot-writer boot error', err);
+    reportIfAlpacaAuth('snapshot-writer (boot)', err);
 });
 
 // Crypto snapshot: every 5 minutes, 24/7 (only runs if WATCH_CRYPTO_SYMBOLS is set)
 cron.schedule('*/5 * * * *', () => {
   writeCryptoSnapshot().catch((err) => {
     console.error('[execution] crypto snapshot-writer cron error', err);
+    reportIfAlpacaAuth('crypto snapshot-writer', err);
   });
 });
 
 // Run crypto snapshot once on boot
 writeCryptoSnapshot().catch((err) => {
   console.error('[execution] crypto snapshot-writer boot error', err);
+    reportIfAlpacaAuth('crypto snapshot-writer (boot)', err);
 });
 
 // EOD reconciliation: 4:35 PM ET on weekdays
@@ -79,6 +85,7 @@ cron.schedule(
   () => {
     runEodReconciliation().catch((err) => {
       console.error('[execution] reconciliation cron error', err);
+    reportIfAlpacaAuth('reconciliation', err);
     });
   },
   { timezone: 'America/New_York' },

@@ -1,6 +1,7 @@
 import { TradeIntent } from '@trading-council/contracts';
 import { sendAlert } from '@trading-council/alerts';
 import { alpaca } from './alpaca.js';
+import { reportIfAlpacaAuth } from './alpaca-auth.js';
 import { pool } from './db.js';
 
 export async function submitOrder(
@@ -66,6 +67,7 @@ export async function submitOrder(
       `[execution] order-submitter: Alpaca error for intent ${intent.intent_id}`,
       err,
     );
+    reportIfAlpacaAuth('order placement', err);
     try {
       await pool.query(
         `UPDATE trade_intents SET status = 'failed' WHERE intent_id = $1`,

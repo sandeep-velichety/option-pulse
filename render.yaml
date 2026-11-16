@@ -40,6 +40,11 @@ services:
         value: "true"
       - key: RUN_MODE
         value: stock
+      # Alerting (any one is enough; both is better). Email via Resend, and/or a Slack/Discord webhook.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
       - key: NODE_ENV
         value: production
       - key: APP_MODE
@@ -74,6 +79,11 @@ services:
         value: "true"
       - key: RUN_MODE
         value: crypto
+      # Alerting (any one is enough; both is better). Email via Resend, and/or a Slack/Discord webhook.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
       # Crypto has no broker-side stop/take-profit, so this cron also closes positions
       # (stop-loss / take-profit / time exit). DRY RUN = log only, never sells. Review the
       # "[exits][DRY RUN]" log lines, then set this to "false" to go live.
@@ -112,6 +122,11 @@ services:
         value: AAPL,MSFT,NVDA,TSLA,SPY
       - key: WATCH_CRYPTO_SYMBOLS
         value: BTC/USD,ETH/USD
+      # Alerting (any one is enough; both is better). Email via Resend, and/or a Slack/Discord webhook.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
       # VIX comes from FRED. Without this the snapshot carries vix=0 / stale_days=999.
       - key: FRED_API_KEY
         sync: false

@@ -187,8 +187,28 @@ Stages in between: `start` (UTC + ET clock, window, backend) → `snapshot` → 
 in `decisions` (`Agent / cycle error`, `Stale market data (cycle skipped)`) and show on the ops-web
 `/decisions` page. A boot line (`[control-plane][boot]`) reports which credentials are present (booleans only).
 
-**If every cycle fails with `401 invalid x-api-key`:** the Anthropic key was revoked or rotated (this happened
-2026-11-15 ~03:00 ET and went unnoticed for ~2 days). The council is completely down — no stock *or* crypto decisions.
-Create a new key at platform.claude.com → Settings → API keys and set `ANTHROPIC_API_KEY` on **both**
-`control-plane` and `control-plane-crypto`. The control-plane now also emails an alert once per 12h when this happens
-(needs `RESEND_API_KEY` set on the service; otherwise it is only logged and saved as a `decisions` row).
+## Alerts: how you find out a key stopped working
+
+A revoked key used to fail silently for days. Now, on **every** control-plane run, the first thing it does is a free
+check of the Anthropic key (no tokens used). If the key is rejected (HTTP 401/403):
+
+1. an alert is sent **immediately** (email and/or webhook), once per 6 hours;
+2. the run is marked **failed** (exit code 1), so Render shows the cron as failed and sends its own notification
+   (Render → Account Settings → Notifications → turn on cron/deploy failure alerts);
+3. a "Agent / cycle error" row is saved on the dashboard's `/decisions` page;
+4. the cycle still runs, so crypto stops/exits (which need no LLM) keep protecting positions.
+
+`execution` does the same for **Alpaca** keys (rejected `ALPACA_KEY`/`ALPACA_SECRET` → "Execution DOWN" alert, once per
+6h per process).
+
+Set at least one alert channel on `control-plane`, `control-plane-crypto` and `execution` (Render → service → Environment):
+
+| Variable | What |
+|---|---|
+| `ALERT_WEBHOOK_URL` | **Easiest.** A Slack *Incoming Webhook* or Discord *channel webhook* URL. |
+| `RESEND_API_KEY` | Email via resend.com. By default mail goes to `ALERT_TO_EMAIL` from `ALERT_FROM_EMAIL`; the sender domain must be verified in Resend (for testing use `ALERT_FROM_EMAIL=onboarding@resend.dev`, which can only email the account owner). |
+
+With neither set, the alert is only written to the logs — which is why the 2026-11-15 outage went unnoticed.
+
+**To fix a rejected Anthropic key:** create a new key at platform.claude.com → Settings → API keys and set
+`ANTHROPIC_API_KEY` on **both** `control-plane` and `control-plane-crypto` (services do not share environment variables).

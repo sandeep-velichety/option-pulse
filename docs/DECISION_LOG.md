@@ -414,6 +414,20 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-16 (cont'd) — Key failures are now reported immediately, and fail the run.**
+
+The first alerting attempt (after the 11-15 outage) was not immediate: it fired only after a whole cycle failed, only if a
+snapshot had loaded, only by email, and the cron still exited 0 so Render showed green while the council was dead.
+Now: (1) `auth-alert.ts` probes the Anthropic key with the free `models.list` at the start of every run and reports a
+401/403 immediately; (2) the run exits non-zero (`process.exitCode = 1`) so Render marks the cron failed and notifies;
+(3) the cycles still run — crypto stops/exits need no LLM and must keep working; (4) alerts dedupe via a `decisions` note
+(6h), so Render's every-run failure is the repeating signal and email/webhook is not spammed; (5) `packages/alerts` gains
+`ALERT_WEBHOOK_URL` (Slack/Discord) next to Resend email, plus `sendAlertOnce` (in-memory cooldown) for long-running
+workers; (6) `execution` detects Alpaca `AuthError`/`PermissionError` at every call site (snapshots, crypto snapshots,
+order placement, reconciliation, claim loop) and alerts once per 6h per process. Pure classifiers are unit-tested
+(`errors.test.ts`, `alpaca-auth.test.ts`); verified end to end with fake keys and a dead database (no writes).
+Operational gap that remains: with neither `ALERT_WEBHOOK_URL` nor `RESEND_API_KEY` set, alerts only reach logs.
+
 **2026-11-16 — Council outage: Anthropic key rejected since 2026-11-15 08:00 UTC; "no stock trades" explained.**
 
 No stock trades on Mon 11-16 because NO council cycle succeeded — stock and crypto alike failed with
