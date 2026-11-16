@@ -186,3 +186,9 @@ Stages in between: `start` (UTC + ET clock, window, backend) → `snapshot` → 
 `classifiers` → `risk_gate`. If the logs scroll away, failures and stale-data skips are also saved as rows
 in `decisions` (`Agent / cycle error`, `Stale market data (cycle skipped)`) and show on the ops-web
 `/decisions` page. A boot line (`[control-plane][boot]`) reports which credentials are present (booleans only).
+
+**If every cycle fails with `401 invalid x-api-key`:** the Anthropic key was revoked or rotated (this happened
+2026-11-15 ~03:00 ET and went unnoticed for ~2 days). The council is completely down — no stock *or* crypto decisions.
+Create a new key at platform.claude.com → Settings → API keys and set `ANTHROPIC_API_KEY` on **both**
+`control-plane` and `control-plane-crypto`. The control-plane now also emails an alert once per 12h when this happens
+(needs `RESEND_API_KEY` set on the service; otherwise it is only logged and saved as a `decisions` row).

@@ -298,7 +298,7 @@ export async function writeCycleNote(p: {
   snapshotId: string;
   reason: string;
   dedupeMinutes: number;
-}): Promise<void> {
+}): Promise<boolean> {
   const strategyId = p.assetClass === 'crypto' ? CRYPTO_STRATEGY_ID : STRATEGY_ID;
   try {
     const dup = await pool.query(
@@ -307,13 +307,15 @@ export async function writeCycleNote(p: {
           AND created_at > now() - ($3 || ' minutes')::interval LIMIT 1`,
       [p.verdict, strategyId, String(p.dedupeMinutes)],
     );
-    if (dup.rows.length > 0) return;
+    if (dup.rows.length > 0) return false;
     await pool.query(
       `INSERT INTO decisions (decision_id, strategy_id, snapshot_id, ticker, verdict, verdict_reason, gate_result)
        VALUES ($1, $2, $3, 'NONE', $4, $5, NULL)`,
       [crypto.randomUUID(), strategyId, p.snapshotId, p.verdict, p.reason.slice(0, 2000)],
     );
+    return true;
   } catch (err) {
     console.error('[control-plane] writeCycleNote failed (non-fatal)', err);
+    return false;
   }
 }

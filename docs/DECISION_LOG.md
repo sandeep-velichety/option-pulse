@@ -414,6 +414,17 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-16 — Council outage: Anthropic key rejected since 2026-11-15 08:00 UTC; "no stock trades" explained.**
+
+No stock trades on Mon 11-16 because NO council cycle succeeded — stock and crypto alike failed with
+`401 invalid x-api-key` (21 consecutive failures; last good decision 2026-11-15 06:01 UTC, first 401 at 08:00 UTC,
+~03:00 ET Sunday). The stock cycle fired on time (14:31 UTC) with a healthy snapshot (210 bars, technicals present —
+the 11-13 bars fix works) but died at stage `council`. Not a code or market problem; the key was revoked/rotated and
+the services were not updated. Fix is operational (new key on BOTH control-plane services). Code change: an
+authentication failure is now recorded once per 12h and emails an alert (`Council DOWN: Anthropic API key
+rejected`); `writeCycleNote` returns whether it wrote. The 2-day silence is the lesson: failures were visible in logs
+and `/decisions` but nothing pushed them to a human.
+
 **2026-11-14 — Cost-averaging position manager for crypto (user request), with review fixes.**
 
 Request: "employ averaging to get out of bad positions" — refined to: do NOT always buy the low; average only when it
