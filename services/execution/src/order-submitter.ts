@@ -45,6 +45,12 @@ export async function submitOrder(
     // Crypto symbols contain '/' (e.g. BTC/USD). Alpaca paper does not support
     // bracket orders for crypto — submit a plain market order instead.
     const isCrypto = intent.ticker.includes('/');
+    // Defence in depth: stock orders are brackets (and may be shorts), which Alpaca only accepts in
+    // whole shares. Never send a fractional stock quantity, even from an older/stale intent.
+    const orderQty = isCrypto ? Number(intent.qty) : Math.floor(Number(intent.qty));
+    if (!(orderQty > 0)) {
+      throw new Error(`quantity ${intent.qty} rounds to 0 whole shares for ${intent.ticker}`);
+    }
     order = isCrypto
       ? await alpaca.trading.orders.market({
           symbol: intent.ticker,
@@ -55,12 +61,13 @@ export async function submitOrder(
       : await alpaca.trading.orders.bracket({
           symbol: intent.ticker,
           side: intent.side,
-          qty: Number(intent.qty),
+          qty: orderQty,
           ...(intent.order_type === 'limit' && intent.limit_price != null
-            ? { limitPrice: Number(intent.limit_price) }
+            ? { limitPrice: Math.round(Number(intent.limit_price) * 100) / 100 }
             : {}),
-          takeProfit: { limitPrice: intent.bracket.take_profit_price },
-          stopLoss: { stopPrice: intent.bracket.stop_loss_price },
+          // Whole cents only: Alpaca rejects sub-penny prices above $1 (also rounds older intents).
+          takeProfit: { limitPrice: Math.round(intent.bracket.take_profit_price * 100) / 100 },
+          stopLoss: { stopPrice: Math.round(intent.bracket.stop_loss_price * 100) / 100 },
         });
   } catch (err) {
     console.error(

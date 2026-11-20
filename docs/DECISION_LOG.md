@@ -414,6 +414,22 @@ Test caveat: the node `pg` driver ignores `PGOPTIONS`, so a "read-only" dry run 
 `schema_failure` rows (fake API key) to production `decisions`; they must be deleted as super-user
 (`decisions` is append-only for `cp_role`).
 
+**2026-11-20 — Stock trades were approved but ALL FAILED at Alpaca; two order-format bugs fixed.**
+
+After the key was replaced (2026-11-16 ~23:07 UTC) the council ran normally: 34 crypto abstains + 1 crypto gate_reject
+(ETH, `no_open_position` — held) and, for the first time, three real stock decisions, all APPROVED: NVDA short (11-17,
+11-18) and AAPL long (11-19), each ~5% NAV ($4.9k). All three intents ended `failed`; Alpaca shows ZERO orders for
+those days (rejected before creation) while the account is healthy (ACTIVE, shorting enabled, not blocked, AAPL/NVDA
+tradable+shortable+easy-to-borrow). Cause (inferred from Alpaca's rules + the stored values; the exact API message is only in
+the Render execution logs): (1) quantity was `notional/price` with no rounding → 13.97 / 31.72 / 31.59 shares, but
+fractional quantities are invalid on bracket orders and on short sales; (2) bracket stop/target prices had 4 decimals
+(343.0084, 126.7225) but Alpaca requires whole cents above $1. Fixes: `wholeShares()` in `packages/sizer` (round DOWN,
+never exceeds sized notional; 6 tests) used by the council for stocks (crypto stays fractional); `buildBracket` rounds
+stock prices to cents; `order-submitter` defensively floors stock qty and rounds bracket prices to cents so stale
+intents cannot reach Alpaca malformed; a stock position too small for one share is `gate_rejected` with a clear reason.
+Lost trades are not replayed (intents expired). Lesson: the council had been "working" for days while 100% of its
+stock output failed downstream — monitor intent outcomes, not only decisions.
+
 **2026-11-16 (cont'd) — Key failures are now reported immediately, and fail the run.**
 
 The first alerting attempt (after the 11-15 outage) was not immediate: it fired only after a whole cycle failed, only if a

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { riskGate, kellySizer } from '@trading-council/sizer';
+import { riskGate, kellySizer, wholeShares } from '@trading-council/sizer';
 import type { PortfolioState } from '@trading-council/sizer';
 import type { MarketSnapshot, TradeIntent } from '@trading-council/contracts';
 import { callAllocator, callAllocatorRevision } from './allocator.js';
@@ -30,20 +30,24 @@ function buildBracket(
   last: number,
   direction: 'long' | 'short',
   atr_14: number | null,
+  decimals = 4,
 ): { take_profit_price: number; stop_loss_price: number } {
   const atrFraction = atr_14 != null ? atr_14 / last : 0.02;
   const stopDist = Math.max(atrFraction, 0.015);
   const targetDist = stopDist * 2.5;
+  // Alpaca requires stock prices above $1 in whole cents and rejects sub-penny stop/limit prices
+  // (the 2026-11-17..19 brackets were e.g. 343.0084, 126.7225). Callers pass 2 for stocks.
+  const r = (x: number) => parseFloat(x.toFixed(decimals));
 
   if (direction === 'long') {
     return {
-      take_profit_price: parseFloat((last * (1 + targetDist)).toFixed(4)),
-      stop_loss_price: parseFloat((last * (1 - stopDist)).toFixed(4)),
+      take_profit_price: r(last * (1 + targetDist)),
+      stop_loss_price: r(last * (1 - stopDist)),
     };
   }
   return {
-    take_profit_price: parseFloat((last * (1 - targetDist)).toFixed(4)),
-    stop_loss_price: parseFloat((last * (1 + stopDist)).toFixed(4)),
+    take_profit_price: r(last * (1 - targetDist)),
+    stop_loss_price: r(last * (1 + stopDist)),
   };
 }
 
@@ -331,14 +335,37 @@ export async function runCouncil(
 
   const last = sym.last;
   const side: 'buy' | 'sell' = direction === 'long' ? 'buy' : 'sell';
-  const qty = last > 0 ? finalSizing.notional_usd / last : 0;
-  const bracket = buildBracket(last, direction, sym.atr_14);
+  // Stocks go out as bracket orders, and Alpaca rejects fractional quantities on bracket orders and
+  // on short sales — the 2026-11-17..19 stock trades all failed this way. Whole shares, rounded down.
+  // Crypto stays fractional (plain market orders).
+  let qty = last > 0 ? finalSizing.notional_usd / last : 0;
+  let tradedNotional = finalSizing.notional_usd;
+  if (assetClass === 'stock') {
+    const ws = wholeShares(finalSizing.notional_usd, last);
+    if (ws.qty < 1) {
+      return {
+        sessionRunId,
+        decisionId,
+        recommendation,
+        councilVerdictEnum: 'gate_rejected',
+        verdictReason: `Position too small for one whole share: sized $${finalSizing.notional_usd.toFixed(2)} < ${recommendation.ticker} price $${last.toFixed(2)}`,
+        convictionAdjustment,
+        agentRunRecords,
+        sizerOutput: finalSizing,
+        gateResult,
+        pendingIntent: null,
+      };
+    }
+    qty = ws.qty;
+    tradedNotional = ws.notionalUsd;
+  }
+  const bracket = buildBracket(last, direction, sym.atr_14, assetClass === 'stock' ? 2 : 4);
 
   const pendingIntent: PendingIntentData = {
     ticker: recommendation.ticker,
     side,
     qty,
-    notional_usd: finalSizing.notional_usd,
+    notional_usd: tradedNotional,
     last_price: last,
     bracket,
     bet_class: recommendation.bet_class,
