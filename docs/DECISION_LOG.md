@@ -430,6 +430,14 @@ intents cannot reach Alpaca malformed; a stock position too small for one share 
 Lost trades are not replayed (intents expired). Lesson: the council had been "working" for days while 100% of its
 stock output failed downstream — monitor intent outcomes, not only decisions.
 
+**2026-11-20 (cont'd) — Minimum one share for core stock trades.**
+
+Follow-up to the whole-share fix (user: "if not fractional do a whole share trades"). Stocks stay whole-share (fractional is
+invalid on bracket orders and shorts). New: if the sized amount rounds to 0 shares but ONE share still fits under the gate's
+5%-of-NAV hard cap, the council trades that one share instead of rejecting as too small (`wholeShares(..., maxNotionalUsd)`,
+4 tests). Applies to `core` bets only — asymmetric bets are a fixed 1% of NAV with a 5% aggregate budget and are never
+rounded up. If one share exceeds the cap the decision is `gate_rejected` with the cap and price in the reason.
+
 **2026-11-16 (cont'd) — Key failures are now reported immediately, and fail the run.**
 
 The first alerting attempt (after the 11-15 outage) was not immediate: it fired only after a whole cycle failed, only if a

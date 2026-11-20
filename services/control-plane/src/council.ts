@@ -341,14 +341,22 @@ export async function runCouncil(
   let qty = last > 0 ? finalSizing.notional_usd / last : 0;
   let tradedNotional = finalSizing.notional_usd;
   if (assetClass === 'stock') {
-    const ws = wholeShares(finalSizing.notional_usd, last);
+    // Minimum one share: if the sized amount can't buy a whole share but one share still fits the
+    // gate's 5%-of-NAV hard cap, trade that single share instead of dropping the idea.
+    // Core bets only: asymmetric bets are deliberately a small fixed 1% of NAV with a 5% aggregate
+    // budget, so rounding those UP to a share could silently exceed their intended size.
+    const ws = wholeShares(
+      finalSizing.notional_usd,
+      last,
+      recommendation.bet_class === 'core' ? 0.05 * finalSizing.nav_at_decision : undefined,
+    );
     if (ws.qty < 1) {
       return {
         sessionRunId,
         decisionId,
         recommendation,
         councilVerdictEnum: 'gate_rejected',
-        verdictReason: `Position too small for one whole share: sized $${finalSizing.notional_usd.toFixed(2)} < ${recommendation.ticker} price $${last.toFixed(2)}`,
+        verdictReason: `One share of ${recommendation.ticker} ($${last.toFixed(2)}) exceeds the 5%-of-NAV position cap ($${(0.05 * finalSizing.nav_at_decision).toFixed(2)})`,
         convictionAdjustment,
         agentRunRecords,
         sizerOutput: finalSizing,

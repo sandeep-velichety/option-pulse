@@ -29,3 +29,21 @@ describe("wholeShares", () => {
     }
   });
 });
+
+describe("wholeShares — minimum one share", () => {
+  it("buys one share when the sized amount is too small but one share fits the hard cap", () => {
+    const r = wholeShares(300, 352.45, 4900);
+    expect(r.qty).toBe(1);
+    expect(r.notionalUsd).toBeCloseTo(352.45, 6);
+  });
+  it("still rejects (qty 0) when even one share exceeds the hard cap", () => {
+    expect(wholeShares(300, 6000, 4900).qty).toBe(0);
+  });
+  it("does not change the normal case or round up when it can already buy shares", () => {
+    expect(wholeShares(4922.97, 352.45, 4900).qty).toBe(13);
+  });
+  it("the minimum rule is off when no cap is given", () => {
+    expect(wholeShares(300, 352.45).qty).toBe(0);
+  });
+});
+

@@ -11,11 +11,21 @@ export interface WholeShares {
   notionalUsd: number;
 }
 
-export function wholeShares(notionalUsd: number, price: number): WholeShares {
+export function wholeShares(
+  notionalUsd: number,
+  price: number,
+  /**
+   * Hard per-position cap in USD (the risk gate's 5% of NAV). When the sized amount cannot buy a
+   * single share but ONE share still fits under this cap, trade that one share rather than skip
+   * the idea. Omit to disable the minimum-one-share rule.
+   */
+  maxNotionalUsd?: number,
+): WholeShares {
   if (!(notionalUsd > 0) || !(price > 0) || !Number.isFinite(notionalUsd) || !Number.isFinite(price)) {
     return { qty: 0, notionalUsd: 0 };
   }
   // epsilon guards against 2.9999999999 from float division of an exact multiple
-  const qty = Math.floor(notionalUsd / price + 1e-9);
+  let qty = Math.floor(notionalUsd / price + 1e-9);
+  if (qty === 0 && maxNotionalUsd !== undefined && price <= maxNotionalUsd + 0.01) qty = 1;
   return { qty, notionalUsd: qty * price };
 }
